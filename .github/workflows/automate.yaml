@@ -1,6 +1,6 @@
 name: "Deploy to Server"
 
-# Trigger this workflow whenever there is a push to the main branch
+# Trigger this workflow on push to the main branch
 on:
   push:
     branches:
@@ -8,76 +8,71 @@ on:
 
 jobs:
   deploy:
-    # Run the job on the latest Ubuntu runner provided by GitHub Actions
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # Use latest Ubuntu runner
 
-    # Set environment variable for the server IP (from GitHub variables)
     env:
-      SERVER_IP: ${{ vars.SERVER_IP }}
+      SERVER_IP: ${{ vars.SERVER_IP }}  # Server IP from GitHub variables
 
     steps:
-      # Step 1: Checkout the repository
+      # Step 1: Checkout repository
       - name: "Checkout Repository"
         uses: actions/checkout@v3
-        # This ensures the workflow has access to your code in this repository
+        # This ensures the workflow has access to the repository files
 
-      # Step 2: Build Docker image and push it to Docker Hub
-      - name: "Build Docker Image"
+      # Step 2: Build Docker image and push to Docker Hub
+      - name: "Build and Push Docker Image"
         run: |
-          # Log in to Docker Hub using a Personal Access Token stored in secrets
+          # Login to Docker Hub
           docker login -u helven0 -p $DOCKERHUB_PAT
           
-          # Build Docker image using the Dockerfile in the repo
-          # -t assigns a name and tag to the image
+          # Build Docker image from Dockerfile
           docker build -t helven0/devops_portfolio -f Dockerfile .
           
-          # Push the built image to Docker Hub so it can be pulled on the server
+          # Push Docker image to Docker Hub
           docker push helven0/devops_portfolio
         env:
-          # DOCKERHUB_PAT should be stored securely in GitHub secrets
           DOCKERHUB_PAT: ${{ secrets.DOCKERHUB_PAT }}
 
-      # Step 3: Configure SSH for connecting to the remote server
+      # Step 3: Configure SSH on the runner
       - name: "Configure SSH"
         run: |
-          # Create .ssh directory on the runner (if it doesn't exist)
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           
-          # Disable strict host key checking to avoid interactive confirmation prompts
+          # Disable strict host key checking to avoid interactive prompts
           echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
           
-          # Ensure known_hosts file exists and has correct permissions
           touch ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      # Step 4: Set up SSH key for server access
-      - name: "Put SSH Key in Docker file for Server Access"
+      # Step 4: Prepare SSH key for server access
+      - name: "Set Up SSH Key"
         run: |
-          # Create a temporary pem file for SSH key
-          touch pem.pem
-          
-          # Decode base64-encoded SSH key stored in secrets and save it to pem.pem
+          # Decode base64 SSH key and save to pem file
           echo $SSH_KEY64 | base64 -d > pem.pem
-          
-          # Set strict permissions on the pem file
           chmod 400 pem.pem
           
-          # Remove old SSH key for server IP from known_hosts to prevent conflicts
+          # Remove any old server key to prevent SSH conflicts
           ssh-keygen -R $SERVER_IP
         env:
-          # SSH_KEY64 contains the base64-encoded private key for server access
           SSH_KEY64: ${{ secrets.SSH_KEY64 }}
 
-      # Step 5: Pull Docker image on the server and restart container
-      - name: "Docker Pull and Restart Docker"
+      # Step 5: Pull Docker image on server and restart container safely
+      - name: "Pull Image and Restart Container"
         run: |
-          # Pull the latest Docker image from Docker Hub on the remote server
-          ssh -t ubuntu@$SERVER_IP -i pem.pem 'docker pull helven0/devops_portfolio'
-          
-          # Stop and remove existing container named 'mysite'
-          # Note: This will fail if container doesn't exist; can be enhanced to check first
-          ssh -t ubuntu@$SERVER_IP -i pem.pem 'docker stop mysite && docker rm mysite'
-          
-          # Run a new container named 'mysite' mapping port 80 on the server
-          ssh -t ubuntu@$SERVER_IP -i pem.pem 'docker run --name mysite -p 80:80 -d helven0/devops_portfolio'
+          ssh -i pem.pem ubuntu@$SERVER_IP << 'EOF'
+            # Pull latest Docker image from Docker Hub
+            docker pull helven0/devops_portfolio
+
+            # Stop and remove existing container only if it exists
+            if [ $(docker ps -a -q -f name=mysite) ]; then
+              echo "Stopping existing container..."
+              docker stop mysite
+              echo "Removing existing container..."
+              docker rm mysite
+            fi
+
+            # Run new container mapping port 80
+            echo "Starting new container..."
+            docker run --name mysite -p 80:80 -d helven0/devops_portfolio
+          EOF
