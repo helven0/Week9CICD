@@ -17,7 +17,7 @@ jobs:
       # Step 1: Checkout repository
       - name: "Checkout Repository"
         uses: actions/checkout@v3
-        # This ensures the workflow has access to the repository files
+        # Ensures workflow has access to all repo files, including Dockerfile, index.html, style.css
 
       # Step 2: Build Docker image and push to Docker Hub
       - name: "Build and Push Docker Image"
@@ -25,11 +25,11 @@ jobs:
           # Login to Docker Hub
           docker login -u helven0 -p $DOCKERHUB_PAT
           
-          # Build Docker image from Dockerfile
-          docker build -t helven0/devops_portfolio -f Dockerfile .
+          # Build Docker image using the correct Nginx base image
+          docker build -t helven0/devops_portfolio:latest -f Dockerfile .
           
           # Push Docker image to Docker Hub
-          docker push helven0/devops_portfolio
+          docker push helven0/devops_portfolio:latest
         env:
           DOCKERHUB_PAT: ${{ secrets.DOCKERHUB_PAT }}
 
@@ -61,8 +61,14 @@ jobs:
       - name: "Pull Image and Restart Container"
         run: |
           ssh -i pem.pem ubuntu@$SERVER_IP << 'EOF'
+            # Stop host Nginx temporarily if it's running (avoids port 80 conflicts)
+            if systemctl is-active --quiet nginx; then
+              echo "Stopping host Nginx..."
+              sudo systemctl stop nginx
+            fi
+
             # Pull latest Docker image from Docker Hub
-            docker pull helven0/devops_portfolio
+            docker pull helven0/devops_portfolio:latest
 
             # Stop and remove existing container only if it exists
             if [ $(docker ps -a -q -f name=mysite) ]; then
@@ -72,7 +78,10 @@ jobs:
               docker rm mysite
             fi
 
-            # Run new container mapping port 80
+            # Run new container mapping host port 80 to container port 80
             echo "Starting new container..."
-            docker run --name mysite -p 80:80 -d helven0/devops_portfolio
+            docker run --name mysite -p 80:80 -d helven0/devops_portfolio:latest
+
+            # Verify container is running
+            docker ps --filter "name=mysite"
           EOF
