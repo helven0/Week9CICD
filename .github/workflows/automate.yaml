@@ -40,6 +40,6 @@ jobs:
 
       - name: "Docker Pull and Restart Docker"
         run: |
-          ssh -t ubuntu@$SERVER_IP -i pem.pem 'docker pull helven0/devops_portfolio '
+          ssh -t ubuntu@$SERVER_IP -i pem.pem 'docker pull helven0/devops_portfolio'
           ssh -t ubuntu@$SERVER_IP -i pem.pem 'docker stop mysite && docker rm mysite'
           ssh -t ubuntu@$SERVER_IP -i pem.pem 'docker run --name mysite -p 80:80 -d helven0/devops_portfolio '
