@@ -1,41 +1,548 @@
 <!DOCTYPE html>
-<html lang="en">
-    
+<html lang="en" data-theme="light">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-    <link rel="stylesheet" href="style.css">
-    <title>Portfolio Website</title>
-</head>
-<body>
-    <header>
-        <a href="#" class="logo">Suraj</a>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Suraj Rauniyar — Portfolio</title>
 
-        <nav>
-            <a href="#" class="active"> Home</a>
-            <a href="#" >Skills</a>
-            <a href="#" >Education</a>
-            <a href="#" >Experience</a>
-            <a href="#" >Contact</a>
-        </nav>
-    </header>
-    <section class="home">
-        <div class="home-img">
-            <img src="main.png" alt="">
+  <!-- Fonts & icons -->
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;700&family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"/>
+
+  <style>
+  /* ============================
+     Theme variables & typography
+     ============================ */
+  :root{
+    /* spacing scale */
+    --space-xs: 0.6rem;
+    --space-sm: 1.2rem;
+    --space-md: 2.0rem;
+    --space-lg: 3.2rem;
+
+    /* Light palette (default) */
+    --bg: #F9FBFD;
+    --card-bg: #FFFFFF;
+    --text: #0F1720;
+    --muted: #616B73;
+    --accent-1: #2E8BE6;   /* vivid primary blue */
+    --accent-2: #41D3C4;   /* mint secondary */
+    --header-bg: rgba(255,255,255,0.85);
+    --nav-text: #2F3640;
+    --nav-hover: rgba(46,139,230,0.08);
+    --glass-border: rgba(0,0,0,0.06);
+    --shadow: 0 12px 36px rgba(8,10,18,0.06);
+
+    /* type scale */
+    --type-base: 1.45rem;
+    --type-sm: clamp(1.6rem,1.8vw,1.9rem);
+    --type-md: clamp(2.1rem,2.6vw,2.6rem);
+    --type-lg: clamp(2.8rem,3.8vw,3.4rem);
+    --type-xl: clamp(3.6rem,5vw,4.4rem);
+
+    --radius: 14px;
+    --max-width: 1200px;
+  }
+
+  /* Dark overrides */
+  html[data-theme="dark"]{
+    --bg: #0b0f14;
+    --card-bg: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    --text: #E6EEF2;
+    --muted: #99A3A8;
+    --accent-1: #41D3C4;   /* mint primary in dark */
+    --accent-2: #4AA0E2;
+    --header-bg: rgba(14,16,20,0.7);
+    --nav-text: #E6EEF2;
+    --nav-hover: rgba(65,211,196,0.08);
+    --glass-border: rgba(255,255,255,0.04);
+    --shadow: 0 14px 40px rgba(0,0,0,0.6);
+  }
+
+  /* reset + base */
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html{ font-size:62.5%; scroll-behavior:smooth; }
+  body{
+    font-family: "Poppins", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+    line-height:1.6;
+  }
+
+  /* subtle animated background */
+  .bg-visual{
+    position: fixed; inset:0; z-index:-2; pointer-events:none;
+    background:
+      radial-gradient(35rem 18rem at 10% 16%, rgba(46,139,230,0.06), transparent 28%),
+      radial-gradient(24rem 14rem at 86% 78%, rgba(65,211,196,0.02), transparent 24%);
+    opacity: .95;
+    animation: bgMove 30s linear infinite;
+  }
+  @keyframes bgMove{ 0%{transform:translateY(0)} 50%{transform:translateY(-3%)} 100%{transform:translateY(0)} }
+
+  /* Header */
+  .site-header{
+    position: fixed;
+    top: var(--space-sm);
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100% - var(--space-lg));
+    max-width: var(--max-width);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap: var(--space-sm);
+    padding: .6rem 1.6rem;
+    min-height:64px;
+    border-radius: 12px;
+    background: var(--header-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow);
+    z-index:1000;
+    backdrop-filter: blur(6px) saturate(120%);
+  }
+
+  .logo{ color:var(--accent-1); font-weight:700; font-size:2.2rem; text-decoration:none; padding-right:1rem; }
+
+  /* nav center wrapper */
+  .nav-wrap{ flex:1 1 auto; display:flex; justify-content:center; align-items:center; min-width:0; }
+  nav.primary-nav ul{ list-style:none; display:flex; gap:1.6rem; align-items:center; margin:0; padding:0; overflow:hidden; }
+  nav.primary-nav a{
+    color:var(--nav-text);
+    text-decoration:none;
+    font-size:1.45rem;
+    padding:.5rem .8rem;
+    border-radius:8px;
+    display:inline-flex;
+    align-items:center;
+    gap:.6rem;
+    white-space:nowrap;
+    position:relative;
+    transition: color .12s, transform .12s;
+  }
+  /* underline animation */
+  nav.primary-nav a::after{
+    content:"";
+    position:absolute; left:0; right:0; bottom:-5px; height:2px; width:0;
+    background: linear-gradient(90deg,var(--accent-1),var(--accent-2));
+    transition: width .28s ease;
+  }
+  nav.primary-nav a:hover::after, nav.primary-nav a.active::after{ width:100%; }
+  nav.primary-nav a:hover{ transform: translateY(-2px); color:var(--text); }
+
+  /* header controls on right */
+  .header-controls{ display:flex; gap:.6rem; align-items:center; }
+  .theme-toggle{
+    border-radius:10px; border:1px solid var(--glass-border); padding:.6rem; background:transparent; color:var(--nav-text);
+    display:inline-flex; align-items:center; justify-content:center; min-width:44px; min-height:44px; cursor:pointer;
+  }
+  .theme-toggle:hover{ background:var(--nav-hover); }
+
+  .nav-toggle{ display:none; background:transparent; border:0; padding:.4rem; cursor:pointer; }
+  .hamburger{ width:2.6rem; height:.18rem; background:var(--text); border-radius:3px; position:relative; }
+  .hamburger::before, .hamburger::after{ content:""; position:absolute; left:0; right:0; height:.18rem; background:var(--text); border-radius:3px; }
+  .hamburger::before{ top:-.6rem } .hamburger::after{ top:.6rem }
+
+  /* main container */
+  main{ max-width:var(--max-width); margin: calc(5.2rem + var(--space-lg)) auto 6rem; padding:0 1.6rem; }
+
+  /* cards */
+  .card{ background:var(--card-bg); border-radius:12px; border:1px solid var(--glass-border); padding:calc(var(--space-md) * 1.02); box-shadow: var(--shadow); }
+
+  /* hero */
+  .home{ display:flex; gap:var(--space-lg); align-items:center; justify-content:center; margin-bottom:var(--space-lg); }
+  .home-img img{ width:min(34vw,360px); max-width:420px; border-radius:50%; border:6px solid rgba(255,255,255,0.06); box-shadow:0 20px 60px rgba(0,0,0,0.12); transition:transform .28s; }
+  .home-img img:hover{ transform: translateY(-6px) scale(1.03); }
+
+  .home-content h1{ font-family:"Playfair Display", serif; font-size:var(--type-xl); margin-bottom: .6rem; line-height:1.02; }
+  .home-content h3{ font-size:var(--type-md); color:var(--accent-1); margin-bottom:.6rem; }
+  .home-content p{ font-size:var(--type-base); color:var(--muted); max-width:66ch; margin-bottom:var(--space-sm); }
+
+  .home-cta{ display:flex; gap:.8rem; flex-wrap:wrap; margin-top:.6rem; }
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center;
+    padding:.8rem 1.6rem; border-radius:999px; font-weight:600; font-size:1.45rem; text-decoration:none;
+    background: linear-gradient(90deg,var(--accent-1),var(--accent-2)); color:#fff; transition: transform .18s, box-shadow .18s;
+  }
+  .btn:hover{ transform: translateY(-4px); box-shadow:0 14px 40px rgba(0,0,0,0.12); }
+  .btn.outline{ background:transparent; border:2px solid var(--accent-1); color:var(--accent-1); }
+
+  .social-icons{ display:flex; gap:.8rem; margin-top:1rem; }
+  .social-icons a{ width:3.6rem; height:3.6rem; display:inline-flex; align-items:center; justify-content:center; border-radius:8px; font-size:1.4rem; color:#fff;
+    background: linear-gradient(90deg,var(--accent-1),var(--accent-2)); transition: transform .12s; }
+  .social-icons a:hover{ transform: scale(1.12); }
+
+  /* sections */
+  .section{ margin:var(--space-lg) 0; }
+  .section h2{ font-family:"Playfair Display", serif; font-size:var(--type-lg); margin-bottom:.8rem; }
+  .section p, li { font-size:var(--type-base); color:var(--muted); }
+
+  /* grid & timeline */
+  .grid-2{ display:grid; grid-template-columns:1fr 1fr; gap:var(--space-md); }
+  .timeline{ display:flex; flex-direction:column; gap:var(--space-md); }
+  .timeline-item{ display:flex; gap:var(--space-md); align-items:flex-start; }
+  .timeline-date{ min-width:12rem; color:var(--muted); font-size:1.35rem; text-align:right; }
+
+  /* projects */
+  .projects-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:var(--space-md); }
+  .project{ border-radius:12px; padding:var(--space-md); transition: transform .2s ease, box-shadow .2s ease; border:1px solid var(--glass-border); background:var(--card-bg); }
+  .project:hover{ transform: translateY(-8px); box-shadow: 0 18px 40px rgba(0,0,0,0.12); border-color:var(--accent-1); }
+
+  /* skills: pills + progress */
+  .skills-grid{ display:flex; flex-wrap:wrap; gap:.8rem; margin-top:.6rem; }
+  .skill-pill{ padding:.5rem .9rem; border-radius:999px; background:rgba(0,0,0,0.03); color:var(--text); font-weight:600; font-size:1.35rem; border:1px solid var(--glass-border); }
+  .skill-bar{ margin-top:.8rem; background: linear-gradient(90deg, rgba(0,0,0,0.03), rgba(0,0,0,0.02)); height:12px; border-radius:999px; overflow:hidden; border:1px solid var(--glass-border); }
+  .skill-fill{ height:100%; width:0%; background: linear-gradient(90deg,var(--accent-1),var(--accent-2)); transition: width 1.2s cubic-bezier(.2,.9,.3,.9); }
+
+  /* footer */
+  .site-footer{ text-align:center; color:var(--muted); margin:var(--space-lg) 0; font-size:1.35rem; }
+
+  /* reveal & motion classes */
+  .fade-out{ opacity:0; transform: translateY(20px); transition: all .6s cubic-bezier(.2,.9,.2,1); }
+  .fade-in{ opacity:1; transform: translateY(0); }
+
+  /* responsive */
+  @media (max-width: 1000px){
+    nav.primary-nav ul{ gap:1rem; }
+    .nav-wrap{ display:none; }
+    .nav-toggle{ display:inline-block; }
+    .site-header{ padding:.6rem 1rem; }
+    main{ margin-top: calc(4rem + var(--space-lg)); padding:0 1.2rem; }
+    .home{ flex-direction:column-reverse; text-align:center; gap:var(--space-md); }
+    .home-img img{ width:60vw; }
+    .grid-2{ grid-template-columns:1fr; }
+    .timeline-date{ text-align:left; min-width:auto; }
+    h1{ font-size: clamp(2.6rem,8vw,3.6rem); }
+    .btn{ font-size:1.35rem; padding:.7rem 1.2rem; }
+  }
+
+  /* reduced motion */
+  @media (prefers-reduced-motion: reduce){
+    *{ animation:none !important; transition:none !important; }
+  }
+  </style>
+</head>
+
+<body>
+  <header class="site-header" role="banner">
+    <a href="#home" class="logo">Suraj</a>
+
+    <div class="nav-wrap" aria-hidden="false">
+      <nav id="primary-navigation" class="primary-nav" role="navigation" aria-label="Primary navigation">
+        <ul>
+          <li><a href="#home" class="active">Home</a></li>
+          <li><a href="#summary">Summary</a></li>
+          <li><a href="#education">Education</a></li>
+          <li><a href="#experience">Experience</a></li>
+          <li><a href="#projects">Projects</a></li>
+          <li><a href="#skills">Skills</a></li>
+          <li><a href="#certs">Certifications</a></li>
+          <li><a href="#contact" class="contact">Contact</a></li>
+        </ul>
+      </nav>
+    </div>
+
+    <div class="header-controls" role="group" aria-label="Header controls">
+      <button id="theme-toggle" class="theme-toggle" aria-pressed="false" aria-label="Toggle theme">
+        <i class="fa-regular fa-moon" aria-hidden="true"></i>
+      </button>
+
+      <button class="nav-toggle" aria-controls="mobile-nav" aria-expanded="false" aria-label="Open menu">
+        <span class="hamburger" aria-hidden="true"></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- simple mobile nav -->
+  <nav id="mobile-nav" aria-hidden="true" style="display:none; position:fixed; right:1rem; top:76px; z-index:1200;">
+    <div style="background:var(--card-bg); border-radius:12px; padding:12px; border:1px solid var(--glass-border); box-shadow:var(--shadow);">
+      <ul style="list-style:none; display:flex; flex-direction:column; gap:.6rem; margin:0; padding:0;">
+        <li><a href="#home">Home</a></li>
+        <li><a href="#summary">Summary</a></li>
+        <li><a href="#education">Education</a></li>
+        <li><a href="#experience">Experience</a></li>
+        <li><a href="#projects">Projects</a></li>
+        <li><a href="#skills">Skills</a></li>
+        <li><a href="#certs">Certifications</a></li>
+        <li><a href="#contact">Contact</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <div class="bg-visual" aria-hidden="true"></div>
+
+  <main>
+    <!-- Hero -->
+    <section id="home" class="home card" aria-labelledby="hero-heading">
+      <div class="home-img" aria-hidden="false">
+        <img src="main.png" alt="Portrait of Suraj">
+      </div>
+
+      <div class="home-content">
+        <h1 id="hero-heading">Hi, It's <span style="color:var(--accent-1)">Suraj Rauniyar</span></h1>
+        <h3 class="typing-text" aria-live="polite">I'm a <span id="typed"></span><span class="cursor" aria-hidden="true"></span></h3>
+        <p>Third-year BSc (Hons) Computer Networking & IT Security student. I build networking projects, experiment with IoT, and practice ethical hacking and system administration.</p>
+
+        <div class="home-cta">
+          <a href="Suraj Rauniyar CV.pdf" class="btn" target="_blank" rel="noopener noreferrer">Download CV</a>
+          <a href="#contact" class="btn outline">Contact Me</a>
         </div>
-        <div class="home-content">
-            <h1>Hi, It's <span>Suraj</span></h1>
-            <h3 class="typing-text">I'm a <span></span></h3>
-            <p>I am a second year Networking and IT security student</p>
-            <div class="social-icons">
-                <a href="#"><i class="fa-brands fa-linkedin"></i></a>
-                <a href="#"><i class="fa-brands fa-github"></i></a>
-                <a href="#"><i class="fa-brands fa-x-twitter"></i></a>
-                <a href="#"><i class="fa-brands fa-instagram"></i></a>
-            </div>
-            <a href="#" class="btn">Hire me</a>
+
+        <div class="social-icons" aria-label="Social links">
+          <a href="https://www.linkedin.com/in/suraj-rauniyar-363882159/" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn"><i class="fa-brands fa-linkedin"></i></a>
+          <a href="#" aria-label="GitHub" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-github"></i></a>
+          <a href="#" aria-label="X" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-x-twitter"></i></a>
+          <a href="#" aria-label="Instagram" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-instagram"></i></a>
         </div>
+      </div>
     </section>
+
+    <!-- Summary -->
+    <section id="summary" class="section card fade-out" aria-labelledby="summary-heading">
+      <h2 id="summary-heading">Career Objective / Summary</h2>
+      <p>Motivated and detail-oriented third-year Computer Networking & IT Security student with hands-on experience in Cisco Packet Tracer, web development, MariaDB, and basic Python/Java. Strong analytical mindset and passion for practical security projects. Seeking internships to gain real-world experience and build a security-focused career.</p>
+    </section>
+
+    <!-- Education -->
+    <section id="education" class="section card fade-out" aria-labelledby="education-heading">
+      <h2 id="education-heading">Education</h2>
+      <div class="grid-2">
+        <div>
+          <h3>BSc (Hons) Computer Networking & IT Security</h3>
+          <p><strong>Islington College — London Metropolitan University</strong></p>
+          <p class="muted">Feb 2024 – Present — Kamal Marg, Kathmandu</p>
+        </div>
+        <div>
+          <h3>GCE A-Levels, Science</h3>
+          <p><strong>Chelsea International Academy — Cambridge University</strong></p>
+          <p class="muted">Jul 2019 – Dec 2023 — Baneshwor, Kathmandu</p>
+        </div>
+      </div>
+
+      <div style="margin-top:1rem;">
+        <h4>SEE (Secondary Education Examination)</h4>
+        <p><strong>Occidental Public School</strong> — Anamnagar, Kathmandu</p>
+        <p class="muted">May 2006 – Jun 2019</p>
+      </div>
+    </section>
+
+    <!-- Experience -->
+    <section id="experience" class="section fade-out" aria-labelledby="experience-heading">
+      <h2 id="experience-heading">Experience</h2>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="timeline-date">Feb 2025 – Present</div>
+          <div class="timeline-card card">
+            <h3>Marketing & Communication Intern — Islington College</h3>
+            <ul>
+              <li>Promoted academic programs and called prospective students to explain benefits and increase awareness.</li>
+              <li>Maintained student records and coordinated application/announcement communications.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-date">Dec 2024 – Feb 2025</div>
+          <div class="timeline-card card">
+            <h3>IT Support Intern — Islington College</h3>
+            <ul>
+              <li>Assisted students and faculty with AV and lab setups; troubleshot hardware and software issues during sessions.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-date">Jan 2024 – Dec 2024</div>
+          <div class="timeline-card card">
+            <h3>Assistant Manager — Roshani Traders Pvt. Ltd.</h3>
+            <ul>
+              <li>Monitored inventory, analyzed sales reports, and supported strategies to improve product turnover and reduce stock issues.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Projects -->
+    <section id="projects" class="section fade-out" aria-labelledby="projects-heading">
+      <h2 id="projects-heading">Projects</h2>
+      <div class="projects-grid">
+        <article class="project">
+          <h3>Smart Door Lock System (IoT)</h3>
+          <p class="muted" style="margin:.4rem 0;">ESP32 • C/C++ • PIR • I2C LCD • Keypad</p>
+          <p>Motion-triggered LCD, PIN-based access, admin PIN creation, solenoid lock control, local logging and low-power operation.</p>
+        </article>
+
+        <article class="project">
+          <h3>Command Injection Demo</h3>
+          <p class="muted" style="margin:.4rem 0;">Mutillidae • Metasploitable</p>
+          <p>Group demonstration of command injection exploitation and mitigation strategies with a technical report and live demo.</p>
+        </article>
+
+        <article class="project">
+          <h3>DockDialog — Self-hosted AI Chat</h3>
+          <p class="muted" style="margin:.4rem 0;">Docker • Ollama • OpenWebUI</p>
+          <p>Privacy-first local deployment & GUI for LLMs with Docker automation and resource controls for on-prem LLM usage.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- Skills -->
+    <section id="skills" class="section card fade-out" aria-labelledby="skills-heading">
+      <h2 id="skills-heading">Skills</h2>
+      <div class="skills-grid" id="skills-grid">
+        <div class="skill-pill">Cisco Packet Tracer</div>
+        <div class="skill-pill">Networking Fundamentals</div>
+        <div class="skill-pill">Python (beginner)</div>
+        <div class="skill-pill">HTML / CSS / JS</div>
+        <div class="skill-pill">MariaDB / SQL</div>
+        <div class="skill-pill">Linux basics</div>
+      </div>
+
+      <div style="margin-top:1rem;">
+        <div style="font-weight:600; margin-bottom:.6rem;">Skill levels</div>
+        <div class="skill-bar" aria-hidden="true"><div class="skill-fill" data-fill="85"></div></div>
+        <div style="font-size:1.25rem; color:var(--muted); margin-top:.5rem;">Networking & Tools — 85%</div>
+      </div>
+    </section>
+
+    <!-- Certifications -->
+    <section id="certs" class="section card fade-out" aria-labelledby="certs-heading">
+      <h2 id="certs-heading">Certifications</h2>
+      <ul class="cert-list" style="margin-top:.8rem; color:var(--muted);">
+        <li>AWS Academy Cloud Architecting</li>
+        <li>AWS Academy Cloud Operations</li>
+        <li>AWS Academy Security Foundations</li>
+        <li>AWS Academy Cloud Security Foundations</li>
+      </ul>
+    </section>
+
+    <!-- Contact -->
+    <section id="contact" class="section card fade-out" aria-labelledby="contact-heading">
+      <h2 id="contact-heading">Contact</h2>
+      <p><strong>Address:</strong> Anamnagar-29, Kathmandu</p>
+      <p><strong>Phone:</strong> +977-9803494146</p>
+      <p><strong>Email:</strong> <a href="mailto:surajrauniyar1@outlook.com">surajrauniyar1@outlook.com</a></p>
+      <p><strong>LinkedIn:</strong> <a href="https://www.linkedin.com/in/suraj-rauniyar-363882159/" target="_blank" rel="noopener noreferrer">linkedin.com/in/suraj-rauniyar-363882159</a></p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>© <span id="year"></span> Suraj Rauniyar — Computer Networking & IT Security</p>
+  </footer>
+
+  <script>
+  // ==============
+  // script.js
+  // ==============
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const root = document.documentElement;
+    const themeToggle = document.getElementById('theme-toggle');
+    const navToggle = document.querySelector('.nav-toggle');
+    const mobileNav = document.getElementById('mobile-nav');
+    const mobileNavLinks = mobileNav ? mobileNav.querySelectorAll('a') : [];
+
+    // theme: default light, persist to localStorage
+    const stored = localStorage.getItem('theme');
+    if (stored) root.setAttribute('data-theme', stored);
+    else root.setAttribute('data-theme', 'light');
+
+    function updateThemeBtn(){
+      const icon = themeToggle.querySelector('i');
+      const isLight = root.getAttribute('data-theme') === 'light';
+      themeToggle.setAttribute('aria-pressed', isLight ? 'true' : 'false');
+      icon.className = isLight ? 'fa-regular fa-moon' : 'fa-regular fa-sun';
+      // ensure visible color
+      themeToggle.style.color = getComputedStyle(root).getPropertyValue('--nav-text');
+    }
+    updateThemeBtn();
+
+    themeToggle.addEventListener('click', () => {
+      const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+      root.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+      updateThemeBtn();
+    });
+
+    // mobile nav toggle
+    if (navToggle && mobileNav) {
+      navToggle.addEventListener('click', () => {
+        const expanded = navToggle.getAttribute('aria-expanded') === 'true';
+        navToggle.setAttribute('aria-expanded', String(!expanded));
+        if (expanded){
+          mobileNav.style.display = 'none';
+          mobileNav.setAttribute('aria-hidden','true');
+        } else {
+          mobileNav.style.display = 'block';
+          mobileNav.setAttribute('aria-hidden','false');
+        }
+      });
+
+      mobileNavLinks.forEach(a => a.addEventListener('click', () => {
+        mobileNav.style.display = 'none';
+        mobileNav.setAttribute('aria-hidden','true');
+        navToggle.setAttribute('aria-expanded','false');
+      }));
+    }
+
+    // footer year
+    const yearEl = document.getElementById('year');
+    if (yearEl) yearEl.textContent = new Date().getFullYear();
+
+    // typing effect (safe, accessible)
+    const typedEl = document.getElementById('typed');
+    const words = ["Reader","IT security novice","Networking novice","Music listener","Gamer","Software developer"];
+    let wi = 0, ci = 0, deleting = false;
+    const typeSpeed = 70, delSpeed = 40, pause = 1200;
+    function typeLoop(){
+      if (!typedEl) return;
+      const w = words[wi];
+      if (!deleting){
+        ci++;
+        typedEl.textContent = w.slice(0,ci);
+        if (ci === w.length){
+          deleting = true;
+          setTimeout(typeLoop, pause);
+        } else setTimeout(typeLoop, typeSpeed);
+      } else {
+        ci--;
+        typedEl.textContent = w.slice(0,ci);
+        if (ci === 0){
+          deleting = false;
+          wi = (wi+1) % words.length;
+          setTimeout(typeLoop, 300);
+        } else setTimeout(typeLoop, delSpeed);
+      }
+    }
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) typeLoop();
+
+    // reveal on scroll & animate skill fills
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting){
+          entry.target.classList.remove('fade-out');
+          entry.target.classList.add('fade-in');
+          // animate skill-fill when skills section visible
+          if (entry.target.id === 'skills' || entry.target.querySelector('.skill-fill')){
+            document.querySelectorAll('.skill-fill').forEach(el => {
+              const v = el.getAttribute('data-fill') || '60';
+              el.style.width = v + '%';
+            });
+          }
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.12 });
+
+    document.querySelectorAll('.fade-out').forEach(el => observer.observe(el));
+
+    // set initial skill-fill widths to 0 and animate later if present
+    document.querySelectorAll('.skill-fill').forEach(el => el.style.width = '0%');
+  });
+  </script>
 </body>
 </html>
