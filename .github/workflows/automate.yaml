@@ -33,7 +33,7 @@ jobs:
         env:
           DOCKERHUB_PAT: ${{ secrets.DOCKERHUB_PAT }}
 
-      # Step 3: Configure SSH on the runner
+      # Step 3: Configure SSH on the rr
       - name: "Configure SSH"
         run: |
           mkdir -p ~/.ssh
