@@ -69,6 +69,7 @@ jobs:
           else
             REMOTE_IMAGE="helven0/devops_portfolio:latest"
           fi
+          # run remote commands in a single SSH command (safe for YAML)
           ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} \
             "set -euo pipefail; docker pull '${REMOTE_IMAGE}'; if [ \"\$(docker ps -q -f name=mysite)\" ]; then docker stop mysite || true; docker rm mysite || true; fi; docker run --name mysite -p 80:80 -d '${REMOTE_IMAGE}'; sleep 3; if curl -sf http://127.0.0.1/ >/dev/null; then echo 'HEALTH_OK'; else echo 'HEALTH_FAIL' >&2; exit 2; fi"
 
@@ -84,55 +85,57 @@ jobs:
           name: docker-audit
           path: docker_audit_output.txt
 
-      - name: Checkout again to allow commits (persist credentials)
+      - name: Checkout (persist credentials) to allow commits
         uses: actions/checkout@v3
         with:
           persist-credentials: true
           fetch-depth: 0
 
-      - name: On success: update deploy/last_good.json
-        if: ${{ steps.deploy_step.outcome == 'success' }}
+      - name: Handle deploy outcome (update last_good.json or attempt rollback)
         env:
+          DEPLOY_OUTCOME: ${{ steps.deploy_step.outcome }}
           DIGEST: ${{ steps.capture.outputs.DIGEST }}
         run: |
-          mkdir -p deploy
-          # Write JSON safely using printf to avoid shell/quote issues
-          printf '{"digest":"%s","time":"%s","git_sha":"%s"}\n' \
-            "${DIGEST}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${GITHUB_SHA}" > deploy/last_good.json
-          git config user.email "actions@github.com"
-          git config user.name "github-actions[bot]"
-          git add deploy/last_good.json || true
-          git commit -m "Update last_good digest to ${DIGEST}" || echo "no changes to commit"
-          git push || echo "push failed (branch protections?)"
-
-      - name: On failure: attempt rollback once using deploy/last_good.json
-        if: ${{ steps.deploy_step.outcome == 'failure' }}
-        run: |
-          if [ ! -f deploy/last_good.json ]; then
-            echo "deploy/last_good.json not found; cannot rollback automatically"
-            exit 1
-          fi
-          LAST_DIGEST=$(python3 - <<PY
+          echo "Deploy outcome: ${DEPLOY_OUTCOME}"
+          if [ "${DEPLOY_OUTCOME}" = "success" ]; then
+            mkdir -p deploy
+            printf '{"digest":"%s","time":"%s","git_sha":"%s"}\n' \
+              "${DIGEST}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${GITHUB_SHA}" > deploy/last_good.json
+            git config user.email "actions@github.com"
+            git config user.name "github-actions[bot]"
+            git add deploy/last_good.json || true
+            git commit -m "Update last_good digest to ${DIGEST}" || echo "no changes to commit"
+            git push || echo "push failed (branch protections?)"
+          elif [ "${DEPLOY_OUTCOME}" = "failure" ]; then
+            if [ ! -f deploy/last_good.json ]; then
+              echo "deploy/last_good.json not found; cannot rollback automatically"
+              exit 1
+            fi
+            LAST_DIGEST=$(python3 - <<PY
 import json
 d=json.load(open('deploy/last_good.json'))
 print(d.get('digest','') or '')
 PY
 )
-          if [ -z "$LAST_DIGEST" ]; then
-            echo "No last_good digest found; aborting rollback"
-            exit 1
+            if [ -z "$LAST_DIGEST" ]; then
+              echo "No last_good digest found; aborting rollback"
+              exit 1
+            fi
+            echo "Attempting rollback to $LAST_DIGEST"
+            echo "${{ secrets.SSH_KEY64 }}" | base64 -d > pem2.pem
+            chmod 400 pem2.pem
+            ssh -i pem2.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} "/opt/scripts/rollback.sh '${LAST_DIGEST}'" || echo "Rollback script returned non-zero"
+          else
+            echo "Deploy outcome is ${DEPLOY_OUTCOME}; no update or rollback performed."
           fi
-          echo "Attempting rollback to $LAST_DIGEST"
-          echo "${{ secrets.SSH_KEY64 }}" | base64 -d > pem2.pem
-          chmod 400 pem2.pem
-          ssh -i pem2.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} "/opt/scripts/rollback.sh '${LAST_DIGEST}'" || echo "Rollback script returned non-zero"
 
-      - name: Build docs/health.json and push
+      - name: Build docs/health.json and push (dashboard)
         env:
           DIGEST: ${{ steps.capture.outputs.DIGEST }}
+          DEPLOY_OUTCOME: ${{ steps.deploy_step.outcome }}
         run: |
           TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          if [ "${{ steps.deploy_step.outcome }}" = "success" ]; then VERIFY="OK"; else VERIFY="FAIL"; fi
+          if [ "${DEPLOY_OUTCOME}" = "success" ]; then VERIFY="OK"; else VERIFY="FAIL"; fi
           AUDIT_SUM=$(head -n 20 docker_audit_output.txt | tr '\n' ' ' | tr -s ' ')
           printf '{"timestamp":"%s","digest":"%s","verify_summary":"%s","audit_summary":"%s"}\n' \
             "${TIMESTAMP}" "${DIGEST}" "${VERIFY}" "${AUDIT_SUM}" > docs/health.json
