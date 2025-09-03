@@ -1,1 +1,44 @@
-{"timestamp":"2025-09-03T23:51:29Z","digest":"sha256:5ee3bffd0410eb22cdd666dcfa9fae09a849dc5211c63efc8353d299a5cd7b3a","verify_summary":"OK","audit_summary":""}
+{
+  "timestamp": "2025-09-03T23:45:00Z",
+  "deployed": {
+    "digest": "sha256:386c2b81de019bd53d154834cf83356f107113677c6b6459fb64ef5c0ffd44db",
+    "commit": "a9a32e9f2058227a02e6ca1913a1c37a43ff5e2e",
+    "author": "Suraj Rauniyar"
+  },
+  "verification": {
+    "status": "not configured",
+    "last_checked": null
+  },
+  "audit": {
+    "running_containers": 1,
+    "stopped_containers": 0,
+    "dangling_images": 0,
+    "largest_images": [
+      {
+        "repository": "helven0/custom-nginx",
+        "id": "a0cd466c9a60",
+        "size": "52.5MB"
+      }
+    ],
+    "containers": [
+      {
+        "name": "mysite",
+        "image": "helven0/custom-nginx:latest",
+        "status": "Up 22 minutes",
+        "ports": "0.0.0.0:80->80/tcp"
+      }
+    ]
+  },
+  "recent_changes": {
+    "commits": [
+      {"hash": "ebfa07d", "message": "Update health.json", "author": "github-actions[bot]"},
+      {"hash": "adeb0b6", "message": "Update last_good digest", "author": "github-actions[bot]"},
+      {"hash": "a9a32e9", "message": "4 features workflows update v4", "author": "Suraj Rauniyar"}
+    ]
+  },
+  "server": {
+    "host": "ip-10-0-0-32",
+    "os": "Ubuntu 22.04",
+    "docker_version": "20.10.7"
+  }
+}
