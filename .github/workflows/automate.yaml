@@ -36,20 +36,27 @@ jobs:
         env:
           DOCKERHUB_PAT: ${{ secrets.DOCKERHUB_PAT }}
 
-      - name: Capture pushed image digest and upload metadata
+            - name: Capture pushed image digest and upload metadata
         id: capture
         shell: bash
         run: |
           IMAGE="helven0/devops_portfolio:latest"
+          # make sure we have the same manifest the registry has
           docker pull "$IMAGE" || true
-          REPO_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE" || true)
-          DIGEST=$(echo "$REPO_DIGEST" | awk -F'@' '{print $2}')
-          echo "REPO_DIGEST=$REPO_DIGEST" >> $GITHUB_OUTPUT
-          echo "DIGEST=$DIGEST" >> $GITHUB_OUTPUT
-          echo "IMAGE=$IMAGE" >> $GITHUB_OUTPUT
-          cat > artifact-metadata.json <<EOF
-{"image":"$IMAGE","repo_digest":"$REPO_DIGEST","digest":"$DIGEST","git_sha":"${GITHUB_SHA}"}
-EOF
+          REPO_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE" || true)"
+          DIGEST="${REPO_DIGEST#*@}"
+
+          # export outputs for later steps
+          {
+            echo "REPO_DIGEST=$REPO_DIGEST"
+            echo "DIGEST=$DIGEST"
+            echo "IMAGE=$IMAGE"
+          } >> "$GITHUB_OUTPUT"
+
+          # write compact JSON without heredoc to avoid YAML issues
+          printf '{"image":"%s","repo_digest":"%s","digest":"%s","git_sha":"%s"}\n' \
+            "$IMAGE" "$REPO_DIGEST" "$DIGEST" "${GITHUB_SHA}" > artifact-metadata.json
+
 
       - name: Upload artifact metadata
         uses: actions/upload-artifact@v4
