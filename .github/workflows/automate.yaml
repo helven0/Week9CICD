@@ -1,17 +1,16 @@
-name: Deploy to Server
+name: Deploy + Audit + ReleaseNotes + Dashboard
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 jobs:
-  deploy:
+  deploy-and-audit:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository (full history)
+      - name: Checkout (full history)
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
@@ -26,34 +25,26 @@ jobs:
           username: helven0
           password: ${{ secrets.DOCKERHUB_PAT }}
 
-      - name: Build and push Docker image
-        shell: bash
-        env:
-          DOCKERHUB_PAT: ${{ secrets.DOCKERHUB_PAT }}
+      - name: Build and push image
         run: |
           IMAGE="helven0/devops_portfolio:latest"
           docker build -t "$IMAGE" -f Dockerfile .
           docker push "$IMAGE"
+        env:
+          DOCKERHUB_PAT: ${{ secrets.DOCKERHUB_PAT }}
 
-      - name: Capture pushed image digest and upload metadata
+      - name: Capture pushed image digest
         id: capture
         shell: bash
         run: |
           IMAGE="helven0/devops_portfolio:latest"
-          # ensure the registry digest is present locally
           docker pull "$IMAGE" || true
           REPO_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE" || true)"
-          DIGEST=""
-          if [ -n "$REPO_DIGEST" ]; then
-            DIGEST="${REPO_DIGEST#*@}"
-          fi
-
+          DIGEST="${REPO_DIGEST#*@}"
           echo "REPO_DIGEST=$REPO_DIGEST" >> $GITHUB_OUTPUT
           echo "DIGEST=$DIGEST" >> $GITHUB_OUTPUT
           echo "IMAGE=$IMAGE" >> $GITHUB_OUTPUT
-
-          printf '{"image":"%s","repo_digest":"%s","digest":"%s","git_sha":"%s"}\n' \
-            "$IMAGE" "$REPO_DIGEST" "$DIGEST" "${GITHUB_SHA}" > artifact-metadata.json
+          printf '{"image":"%s","repo_digest":"%s","digest":"%s","git_sha":"%s"}\n' "$IMAGE" "$REPO_DIGEST" "$DIGEST" "${GITHUB_SHA}" > artifact-metadata.json
 
       - name: Upload artifact metadata
         uses: actions/upload-artifact@v4
@@ -62,48 +53,31 @@ jobs:
           path: artifact-metadata.json
 
       - name: Prepare SSH key
-        shell: bash
         run: |
           echo "${{ secrets.SSH_KEY64 }}" | base64 -d > pem.pem
           chmod 400 pem.pem
 
-      - name: Deploy to EC2 (pull by digest if available)
+      - name: Deploy to EC2 and run health check
         id: deploy_step
         env:
           DIGEST: ${{ steps.capture.outputs.DIGEST }}
-        shell: bash
         run: |
-          IMAGE_TAG="helven0/devops_portfolio:latest"
+          echo "Deploying digest: ${DIGEST}"
+          # Build remote image reference (expanded locally)
           if [ -n "${DIGEST}" ]; then
-            FULL_IMAGE="helven0/devops_portfolio@${DIGEST}"
+            REMOTE_IMAGE="helven0/devops_portfolio@${DIGEST}"
           else
-            FULL_IMAGE="${IMAGE_TAG}"
+            REMOTE_IMAGE="helven0/devops_portfolio:latest"
           fi
+          # Remote commands run on EC2; escape remote $ and command substitution with backslash so evaluation happens remotely
+          ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} \
+            "set -euo pipefail; docker pull '${REMOTE_IMAGE}'; if [ \"\$(docker ps -q -f name=mysite)\" ]; then docker stop mysite || true; docker rm mysite || true; fi; docker run --name mysite -p 80:80 -d '${REMOTE_IMAGE}'; sleep 3; if curl -sf http://127.0.0.1/ >/dev/null; then echo 'HEALTH_OK'; else echo 'HEALTH_FAIL' >&2; exit 2; fi"
 
-          # Pass FULL_IMAGE to the remote bash and pipe a script (heredoc) to it.
-          # FULL_IMAGE is expanded locally here (on the runner) and becomes an env var
-          # available inside the remote script.
-          ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} "FULL_IMAGE='${FULL_IMAGE}' bash -s" <<'ENDSSH'
-set -euo pipefail
-
-# On the remote server, use the FULL_IMAGE environment variable passed in.
-docker pull "$FULL_IMAGE"
-if [ "$(docker ps -q -f name=mysite)" ]; then
-  docker stop mysite || true
-  docker rm mysite || true
-fi
-docker run --name mysite -p 80:80 -d "$FULL_IMAGE"
-docker ps --filter "name=mysite"
-ENDSSH
-
-      - name: Run docker audit on EC2 (capture output)
+      - name: Run docker audit on EC2 (save output)
         id: audit
-        shell: bash
         run: |
           ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} '/opt/scripts/docker_audit.sh' > docker_audit_output.txt || true
-          echo "docker audit saved to docker_audit_output.txt"
-          echo "----- docker_audit_output.txt (first 40 lines) -----"
-          head -n 40 docker_audit_output.txt || true
+          echo "Saved docker audit to docker_audit_output.txt"
 
       - name: Upload docker audit artifact
         uses: actions/upload-artifact@v4
@@ -111,17 +85,16 @@ ENDSSH
           name: docker-audit
           path: docker_audit_output.txt
 
-      - name: Checkout repo (persist credentials) to update files
+      - name: Checkout again to allow commits (persist credentials)
         uses: actions/checkout@v3
         with:
           persist-credentials: true
           fetch-depth: 0
 
-      - name: Update deploy/last_good.json (on successful deploy)
-        if: ${{ success() }}
+      - name: On success: update deploy/last_good.json
+        if: ${{ steps.deploy_step.outcome == 'success' }}
         env:
           DIGEST: ${{ steps.capture.outputs.DIGEST }}
-        shell: bash
         run: |
           mkdir -p deploy
           echo "{\"digest\":\"${DIGEST}\",\"time\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"git_sha\":\"${GITHUB_SHA}\"}" > deploy/last_good.json
@@ -129,44 +102,52 @@ ENDSSH
           git config user.name "github-actions[bot]"
           git add deploy/last_good.json || true
           git commit -m "Update last_good digest to ${DIGEST}" || echo "no changes to commit"
-          git push || echo "git push failed (branch protections?)"
+          git push || echo "push failed (branch protections?)"
 
-      - name: Build docs/health.json
+      - name: On failure: attempt rollback once using deploy/last_good.json
+        if: ${{ steps.deploy_step.outcome == 'failure' }}
+        run: |
+          if [ ! -f deploy/last_good.json ]; then
+            echo "deploy/last_good.json not found; cannot rollback automatically"
+            exit 1
+          fi
+          LAST_DIGEST=$(python3 - <<PY
+import json
+d=json.load(open('deploy/last_good.json'))
+print(d.get('digest','') or '')
+PY
+)
+          if [ -z "$LAST_DIGEST" ]; then
+            echo "No last_good digest found; aborting rollback"
+            exit 1
+          fi
+          echo "Attempting rollback to $LAST_DIGEST"
+          echo "${{ secrets.SSH_KEY64 }}" | base64 -d > pem2.pem
+          chmod 400 pem2.pem
+          ssh -i pem2.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} "/opt/scripts/rollback.sh '${LAST_DIGEST}'" || echo "Rollback script returned non-zero"
+
+      - name: Build docs/health.json and push
         env:
           DIGEST: ${{ steps.capture.outputs.DIGEST }}
-        shell: bash
         run: |
           TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          # keep the audit summary short and escape quotes (so JSON stays valid)
-          AUDIT_SUMMARY="$(head -n 20 docker_audit_output.txt | tr '\n' ' ' | tr -s ' ' | sed 's/"/\\"/g')"
-          mkdir -p docs
-          echo "{\"timestamp\":\"${TIMESTAMP}\",\"digest\":\"${DIGEST}\",\"verify_summary\":\"not configured\",\"audit_summary\":\"${AUDIT_SUMMARY}\"}" > docs/health.json
-          echo "Created docs/health.json:"
-          cat docs/health.json
+          if [ "${{ steps.deploy_step.outcome }}" = "success" ]; then VERIFY="OK"; else VERIFY="FAIL"; fi
+          AUDIT_SUM=$(head -n 20 docker_audit_output.txt | tr '\n' ' ' | tr -s ' ')
+          echo "{\"timestamp\":\"${TIMESTAMP}\",\"digest\":\"${DIGEST}\",\"verify_summary\":\"${VERIFY}\",\"audit_summary\":\"${AUDIT_SUM}\"}" > docs/health.json
+          git add docs/health.json || true
+          git commit -m "Update health.json at ${TIMESTAMP}" || echo "no changes to commit"
+          git push || echo "push failed (branch protections?)"
 
-      - name: Show docs/health.json (debug)
-        shell: bash
-        run: |
-          echo "----- docs/health.json contents -----"
-          cat docs/health.json || echo "docs/health.json not found"
-
-      - name: Deploy docs/ to GitHub Pages (works with branch-protected main)
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs
-
-      - name: Send release notes to Teams (PR-level)
+      - name: Send release notes (PR-level) to Teams or logs
         env:
           TEAMS_WEBHOOK: ${{ secrets.TEAMS_WEBHOOK }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-        shell: bash
         run: |
           if [ -f ./scripts/release_notes.sh ]; then
             chmod +x ./scripts/release_notes.sh
             ./scripts/release_notes.sh
           else
-            echo "release_notes.sh not found"
+            echo "scripts/release_notes.sh not found"
           fi
