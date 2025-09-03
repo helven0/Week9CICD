@@ -69,7 +69,6 @@ jobs:
           else
             REMOTE_IMAGE="helven0/devops_portfolio:latest"
           fi
-          # run remote commands in a single SSH command (safe for YAML)
           ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} \
             "set -euo pipefail; docker pull '${REMOTE_IMAGE}'; if [ \"\$(docker ps -q -f name=mysite)\" ]; then docker stop mysite || true; docker rm mysite || true; fi; docker run --name mysite -p 80:80 -d '${REMOTE_IMAGE}'; sleep 3; if curl -sf http://127.0.0.1/ >/dev/null; then echo 'HEALTH_OK'; else echo 'HEALTH_FAIL' >&2; exit 2; fi"
 
@@ -111,12 +110,8 @@ jobs:
               echo "deploy/last_good.json not found; cannot rollback automatically"
               exit 1
             fi
-            LAST_DIGEST=$(python3 - <<PY
-import json
-d=json.load(open('deploy/last_good.json'))
-print(d.get('digest','') or '')
-PY
-)
+            # Use a single-line python command to extract digest (no heredoc)
+            LAST_DIGEST="$(python3 -c 'import json,sys;d=json.load(open(\"deploy/last_good.json\")); print(d.get(\"digest\",\"\"))')"
             if [ -z "$LAST_DIGEST" ]; then
               echo "No last_good digest found; aborting rollback"
               exit 1
