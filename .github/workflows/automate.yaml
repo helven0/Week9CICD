@@ -13,13 +13,10 @@ jobs:
       SERVER_IP: ${{ vars.SERVER_IP }}
 
     steps:
-      - name: Checkout repository (full history for release notes)
+      - name: Checkout repository (full history)
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
-
-      - name: Set up QEMU (optional for some images)
-        uses: docker/setup-qemu-action@v2
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
@@ -40,20 +37,19 @@ jobs:
           DOCKERHUB_PAT: ${{ secrets.DOCKERHUB_PAT }}
 
       - name: Capture pushed image digest and upload metadata
+        id: capture
         shell: bash
         run: |
           IMAGE="helven0/devops_portfolio:latest"
-          # Ensure the pushed image digest is available locally
           docker pull "$IMAGE" || true
           REPO_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE" || true)
           DIGEST=$(echo "$REPO_DIGEST" | awk -F'@' '{print $2}')
-          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
-          echo "DIGEST=$DIGEST" >> $GITHUB_ENV
-          echo "REPO_DIGEST=$REPO_DIGEST" >> $GITHUB_ENV
+          echo "REPO_DIGEST=$REPO_DIGEST" >> $GITHUB_OUTPUT
+          echo "DIGEST=$DIGEST" >> $GITHUB_OUTPUT
+          echo "IMAGE=$IMAGE" >> $GITHUB_OUTPUT
           cat > artifact-metadata.json <<EOF
 {"image":"$IMAGE","repo_digest":"$REPO_DIGEST","digest":"$DIGEST","git_sha":"${GITHUB_SHA}"}
 EOF
-        continue-on-error: false
 
       - name: Upload artifact metadata
         uses: actions/upload-artifact@v4
@@ -61,27 +57,17 @@ EOF
           name: artifact-metadata
           path: artifact-metadata.json
 
-      - name: Configure SSH
-        run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          # avoid known_hosts prompt
-          echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
-          chmod 600 ~/.ssh/config
-
       - name: Prepare SSH key
         run: |
           echo "${{ secrets.SSH_KEY64 }}" | base64 -d > pem.pem
           chmod 400 pem.pem
-          ssh-keygen -R $SERVER_IP || true
-        env:
-          SSH_KEY64: ${{ secrets.SSH_KEY64 }}
 
-      - name: Deploy to EC2 by digest (or latest if digest empty)
+      - name: Deploy to EC2 (pull by digest if available)
+        id: deploy_step
         env:
-          DIGEST: ${{ env.DIGEST }}
+          DIGEST: ${{ steps.capture.outputs.DIGEST }}
         run: |
-          # decode key already created in previous step
+          echo "Using digest: ${DIGEST}"
           ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} <<'EOF'
             set -e
             IMAGE_TAG="helven0/devops_portfolio:latest"
@@ -90,8 +76,8 @@ EOF
             else
               FULL_IMAGE="$IMAGE_TAG"
             fi
-            # Optional: login to Docker Hub (uncomment if private image or rate limits)
-            # echo "${DOCKERHUB_PAT}" | docker login -u helven0 --password-stdin
+            # optional: docker login (if needed)
+            # echo "$DOCKERHUB_PAT" | docker login -u helven0 --password-stdin
             docker pull "$FULL_IMAGE"
             if [ "$(docker ps -q -f name=mysite)" ]; then
               docker stop mysite || true
@@ -103,22 +89,107 @@ EOF
         env:
           DOCKERHUB_PAT: ${{ secrets.DOCKERHUB_PAT }}
 
-      - name: (Optional) Verify artifact on server if verifier exists (non-fatal)
-        if: always()
+      - name: Run verifier on EC2 (if present) — capture exit
+        id: verifier
+        continue-on-error: true
         run: |
-          # Run verifier only if the script exists on the server
-          ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} 'bash -s' <<'SSH'
+          VERIFY_EXIT=0
+          ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} "bash -s" <<'SSH' || true
             if [ -x /opt/scripts/artifact_verifier.sh ]; then
-              /opt/scripts/artifact_verifier.sh "${DIGEST}" || echo "Verifier returned non-zero"
+              /opt/scripts/artifact_verifier.sh "${{ steps.capture.outputs.DIGEST }}"
+              EXIT_CODE=$?
+              exit $EXIT_CODE
             else
-              echo "No verifier found on server; skipping verification."
+              echo "No verifier installed at /opt/scripts/artifact_verifier.sh"
+              exit 0
             fi
 SSH
+          VERIFY_EXIT=$?
+          echo "verify_exit=$VERIFY_EXIT" >> $GITHUB_OUTPUT
 
-      - name: Checkout repository again for release notes
+      - name: Run docker audit on EC2 (capture output)
+        id: audit
+        run: |
+          ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} 'bash -s' <<'SSH' > docker_audit_output.txt
+            /opt/scripts/docker_audit.sh
+SSH
+          echo "docker audit saved to docker_audit_output.txt"
+      - name: Upload docker audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-audit
+          path: docker_audit_output.txt
+
+      - name: Checkout repo (persist credentials) for possible rollback or updates
         uses: actions/checkout@v3
         with:
+          persist-credentials: true
           fetch-depth: 0
+
+      - name: If verifier failed, attempt rollback (one attempt)
+        if: ${{ steps.verifier.outputs.verify_exit != '0' }}
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+        run: |
+          echo "Verifier reported non-zero; attempting rollback using deploy/last_good.json"
+          if [ ! -f deploy/last_good.json ]; then
+            echo "deploy/last_good.json not found — cannot rollback automatically"
+            exit 1
+          fi
+          LAST_DIGEST=$(python3 - <<PY
+import json
+d=json.load(open('deploy/last_good.json'))
+print(d.get('digest','') or '')
+PY
+)
+          if [ -z "$LAST_DIGEST" ]; then
+            echo "No last_good digest found in deploy/last_good.json"
+            exit 1
+          fi
+          echo "Rolling back to $LAST_DIGEST"
+          echo "${{ secrets.SSH_KEY64 }}" | base64 -d > pem2.pem
+          chmod 400 pem2.pem
+          ssh -i pem2.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} "bash -s" <<'SSH'
+            /opt/scripts/rollback.sh "${LAST_DIGEST}"
+SSH
+          echo "Rollback attempt finished"
+
+      - name: Update last_good.json on success (verifier ok)
+        if: ${{ steps.verifier.outputs.verify_exit == '0' }}
+        env:
+          DIGEST: ${{ steps.capture.outputs.DIGEST }}
+        run: |
+          mkdir -p deploy
+          python3 - <<PY
+import json,sys,datetime
+d={"digest": "${DIGEST}", "time": datetime.datetime.utcnow().isoformat()+"Z", "git_sha":"${GITHUB_SHA}"}
+open("deploy/last_good.json","w").write(json.dumps(d))
+PY
+          git config user.email "actions@github.com"
+          git config user.name "github-actions[bot]"
+          git add deploy/last_good.json || true
+          git commit -m "Update last_good digest to ${DIGEST}" || echo "no change to commit"
+          git push || echo "git push failed (check branch protections)"
+
+      - name: Build docs/health.json and publish to docs/ (for GitHub Pages)
+        env:
+          DIGEST: ${{ steps.capture.outputs.DIGEST }}
+        run: |
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          VERIFY_SUMMARY="unknown"
+          if [ "${{ steps.verifier.outputs.verify_exit }}" = "0" ]; then
+            VERIFY_SUMMARY="OK"
+          else
+            VERIFY_SUMMARY="MISMATCH"
+          fi
+          # short audit summary (attempt to parse artifact if available)
+          AUDIT_SUMMARY=$(head -n 20 docker_audit_output.txt | sed -n '1,10p' | tr '\n' ' ' | tr -s ' ')
+          cat > docs/health.json <<EOF
+{"timestamp":"$TIMESTAMP","digest":"${DIGEST}","verify_summary":"${VERIFY_SUMMARY}","audit_summary":"${AUDIT_SUMMARY}"}
+EOF
+          git add docs/health.json || true
+          git commit -m "Update health.json at $TIMESTAMP" || echo "no docs/health.json change"
+          git push || echo "push failed (check permissions)"
 
       - name: Send release notes to Teams (PR-level)
         env:
@@ -131,5 +202,5 @@ SSH
             chmod +x ./scripts/release_notes.sh
             ./scripts/release_notes.sh
           else
-            echo "No release_notes.sh found at ./scripts/release_notes.sh"
+            echo "release_notes.sh not found"
           fi
