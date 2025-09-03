@@ -1,0 +1,43 @@
+name: Scheduled Health Sweep
+
+on:
+  schedule:
+    - cron: '15 5 * * *'   # daily at 11:00 AM NPT (5:15 AM UTC)
+  workflow_dispatch: {}
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare SSH key
+        run: |
+          echo "${{ secrets.SSH_KEY64 }}" | base64 -d > pem.pem
+          chmod 400 pem.pem
+
+      - name: Run docker audit on EC2 and save
+        run: |
+          ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} '/opt/scripts/docker_audit.sh' > docker_audit_output.txt || true
+          echo "Saved docker audit to docker_audit_output.txt"
+
+      - name: Upload docker audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-audit-$(date +'%Y%m%d')
+          path: docker_audit_output.txt
+
+      - name: Update docs/health.json (summary)
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Create summary and push
+        run: |
+          TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          AUDIT_SUM=$(head -n 20 docker_audit_output.txt | tr '\n' ' ' | tr -s ' ')
+          printf '{"timestamp":"%s","digest":"%s","verify_summary":"%s","audit_summary":"%s"}\n' \
+            "$TIMESTAMP" "unknown" "scheduled" "$AUDIT_SUM" > docs/health.json
+          git config user.email "actions@github.com"
+          git config user.name "github-actions[bot]"
+          git add docs/health.json
+          git commit -m "Scheduled health update $TIMESTAMP" || echo "no changes"
+          git push || echo "push failed (branch protections?)"
