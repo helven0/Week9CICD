@@ -39,17 +39,17 @@ jobs:
         shell: bash
         run: |
           IMAGE="helven0/devops_portfolio:latest"
-          # Ensure registry digest is available
+          # ensure the registry digest is present locally
           docker pull "$IMAGE" || true
           REPO_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE" || true)"
           DIGEST="${REPO_DIGEST#*@}"
 
-          # expose as step outputs
+          # expose outputs
           echo "REPO_DIGEST=$REPO_DIGEST" >> $GITHUB_OUTPUT
           echo "DIGEST=$DIGEST" >> $GITHUB_OUTPUT
           echo "IMAGE=$IMAGE" >> $GITHUB_OUTPUT
 
-          # write artifact file (compact JSON)
+          # small artifact file for download from Actions UI
           printf '{"image":"%s","repo_digest":"%s","digest":"%s","git_sha":"%s"}\n' \
             "$IMAGE" "$REPO_DIGEST" "$DIGEST" "${GITHUB_SHA}" > artifact-metadata.json
 
@@ -69,33 +69,32 @@ jobs:
         env:
           DIGEST: ${{ steps.capture.outputs.DIGEST }}
         run: |
-          echo "Deploying with digest: ${DIGEST}"
-          ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} <<'EOF'
-            set -e
-            IMAGE_TAG="helven0/devops_portfolio:latest"
-            if [ -n "${DIGEST}" ]; then
-              FULL_IMAGE="helven0/devops_portfolio@${DIGEST}"
-            else
-              FULL_IMAGE="$IMAGE_TAG"
-            fi
-            # Pull and run the exact image
-            docker pull "$FULL_IMAGE"
-            if [ "$(docker ps -q -f name=mysite)" ]; then
-              docker stop mysite || true
-              docker rm mysite || true
-            fi
-            docker run --name mysite -p 80:80 -d "$FULL_IMAGE"
-            docker ps --filter "name=mysite"
-EOF
+          IMAGE_TAG="helven0/devops_portfolio:latest"
+          if [ -n "${DIGEST}" ]; then
+            FULL_IMAGE="helven0/devops_portfolio@${DIGEST}"
+          else
+            FULL_IMAGE="${IMAGE_TAG}"
+          fi
+
+          # Use a here-doc for the remote script.
+          # FULL_IMAGE is expanded locally into the heredoc; remote command substitutions are escaped
+          ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} bash -s <<ENDSSH
+set -euo pipefail
+docker pull "${FULL_IMAGE}"
+if [ "\$(docker ps -q -f name=mysite)" ]; then
+  docker stop mysite || true
+  docker rm mysite || true
+fi
+docker run --name mysite -p 80:80 -d "${FULL_IMAGE}"
+docker ps --filter "name=mysite"
+ENDSSH
 
       - name: Run docker audit on EC2 (capture output)
         id: audit
         run: |
-          # Run the audit script on the server and save output locally
-          ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} 'bash -s' <<'SSH' > docker_audit_output.txt
-            /opt/scripts/docker_audit.sh
-SSH
-          echo "Saved docker audit to docker_audit_output.txt"
+          # run the audit script on the server and save the output locally
+          ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} '/opt/scripts/docker_audit.sh' > docker_audit_output.txt || true
+          echo "docker audit saved to docker_audit_output.txt"
 
       - name: Upload docker audit artifact
         uses: actions/upload-artifact@v4
@@ -115,26 +114,22 @@ SSH
           DIGEST: ${{ steps.capture.outputs.DIGEST }}
         run: |
           mkdir -p deploy
-          cat > deploy/last_good.json <<JSON
-{"digest":"${DIGEST}","time":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","git_sha":"${GITHUB_SHA}"}
-JSON
+          echo "{\"digest\":\"${DIGEST}\",\"time\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"git_sha\":\"${GITHUB_SHA}\"}" > deploy/last_good.json
           git config user.email "actions@github.com"
           git config user.name "github-actions[bot]"
           git add deploy/last_good.json || true
           git commit -m "Update last_good digest to ${DIGEST}" || echo "no changes to commit"
           git push || echo "git push failed (branch protections?)"
 
-      - name: Build docs/health.json and push to docs/ (for GitHub Pages)
+      - name: Build docs/health.json and push to docs/
         env:
           DIGEST: ${{ steps.capture.outputs.DIGEST }}
         run: |
-          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          AUDIT_SUMMARY=$(head -n 20 docker_audit_output.txt | tr '\n' ' ' | tr -s ' ')
-          cat > docs/health.json <<EOF
-{"timestamp":"$TIMESTAMP","digest":"${DIGEST}","verify_summary":"not configured","audit_summary":"${AUDIT_SUMMARY}"}
-EOF
+          TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          AUDIT_SUMMARY="$(head -n 20 docker_audit_output.txt | tr '\n' ' ' | tr -s ' ')"
+          echo "{\"timestamp\":\"${TIMESTAMP}\",\"digest\":\"${DIGEST}\",\"verify_summary\":\"not configured\",\"audit_summary\":\"${AUDIT_SUMMARY}\"}" > docs/health.json
           git add docs/health.json || true
-          git commit -m "Update health.json at $TIMESTAMP" || echo "no changes to commit"
+          git commit -m "Update health.json at ${TIMESTAMP}" || echo "no changes to commit"
           git push || echo "git push failed (branch protections?)"
 
       - name: Send release notes to Teams (PR-level)
