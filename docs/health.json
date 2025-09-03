@@ -1,0 +1,7 @@
+{
+  "timestamp": "2025-09-03T23:22:55Z",
+  "digest": "sha256:386c2b81de019bd53d154834cf83356f107113677c6b6459fb64ef5c0ffd44db",
+  "verify_summary": "not configured",
+  "audit_summary": "Running:1 Stopped:0 Dangling:0",
+  "last_rollback": null
+}
