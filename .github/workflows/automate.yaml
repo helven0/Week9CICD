@@ -1,96 +1,135 @@
 name: "Deploy to Server"
-# Trigger this workflow on push to the main branch
+
 on:
   push:
     branches:
       - main
+  workflow_dispatch: {}
+
 jobs:
   deploy:
-    runs-on: ubuntu-latest  # Use latest Ubuntu runner
+    runs-on: ubuntu-latest
     env:
-      SERVER_IP: ${{ vars.SERVER_IP }}  # Server IP from GitHub variables
+      SERVER_IP: ${{ vars.SERVER_IP }}
+
     steps:
-      # Step 1: Checkout repository (full history for release notes)
-      - name: "Checkout Repository"
+      - name: Checkout repository (full history for release notes)
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      # Step 2: Build Docker image and push to Docker Hub
-      - name: "Build and Push Docker Image"
+      - name: Set up QEMU (optional for some images)
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          registry: docker.io
+          username: helven0
+          password: ${{ secrets.DOCKERHUB_PAT }}
+
+      - name: Build and push Docker image
         run: |
-          # Login to Docker Hub
-          docker login -u helven0 -p $DOCKERHUB_PAT
-          
-          # Build Docker image using the correct Nginx base image
-          docker build -t helven0/devops_portfolio:latest -f Dockerfile .
-          
-          # Push Docker image to Docker Hub
-          docker push helven0/devops_portfolio:latest
+          IMAGE="helven0/devops_portfolio:latest"
+          docker build -t "$IMAGE" -f Dockerfile .
+          docker push "$IMAGE"
         env:
           DOCKERHUB_PAT: ${{ secrets.DOCKERHUB_PAT }}
 
-      # Step 3: Configure SSH on the runner
-      - name: "Configure SSH"
+      - name: Capture pushed image digest and upload metadata
+        shell: bash
+        run: |
+          IMAGE="helven0/devops_portfolio:latest"
+          # Ensure the pushed image digest is available locally
+          docker pull "$IMAGE" || true
+          REPO_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE" || true)
+          DIGEST=$(echo "$REPO_DIGEST" | awk -F'@' '{print $2}')
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+          echo "DIGEST=$DIGEST" >> $GITHUB_ENV
+          echo "REPO_DIGEST=$REPO_DIGEST" >> $GITHUB_ENV
+          cat > artifact-metadata.json <<EOF
+{"image":"$IMAGE","repo_digest":"$REPO_DIGEST","digest":"$DIGEST","git_sha":"${GITHUB_SHA}"}
+EOF
+        continue-on-error: false
+
+      - name: Upload artifact metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-metadata
+          path: artifact-metadata.json
+
+      - name: Configure SSH
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          
-          # Disable strict host key checking to avoid interactive prompts
+          # avoid known_hosts prompt
           echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
-          
-          touch ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/config
 
-      # Step 4: Prepare SSH key for server access
-      - name: "Set Up SSH Key"
+      - name: Prepare SSH key
         run: |
-          # Decode base64 SSH key and save to pem file
-          echo $SSH_KEY64 | base64 -d > pem.pem
+          echo "${{ secrets.SSH_KEY64 }}" | base64 -d > pem.pem
           chmod 400 pem.pem
-          
-          # Remove any old server key to prevent SSH conflicts
-          ssh-keygen -R $SERVER_IP
+          ssh-keygen -R $SERVER_IP || true
         env:
           SSH_KEY64: ${{ secrets.SSH_KEY64 }}
 
-      # Step 5: Pull Docker image on server and restart container safely
-      - name: "Pull Image and Restart Container"
+      - name: Deploy to EC2 by digest (or latest if digest empty)
+        env:
+          DIGEST: ${{ env.DIGEST }}
         run: |
-          ssh -i pem.pem ubuntu@$SERVER_IP << 'EOF'
+          # decode key already created in previous step
+          ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} <<'EOF'
             set -e
-            # Stop host Nginx temporarily if it's running (avoids port 80 conflicts)
-            if systemctl is-active --quiet nginx; then
-              echo "Stopping host Nginx..."
-              sudo systemctl stop nginx
+            IMAGE_TAG="helven0/devops_portfolio:latest"
+            if [ -n "${DIGEST}" ]; then
+              FULL_IMAGE="helven0/devops_portfolio@${DIGEST}"
+            else
+              FULL_IMAGE="$IMAGE_TAG"
             fi
-            # Pull latest Docker image from Docker Hub
-            docker pull helven0/devops_portfolio:latest
-            # Stop and remove existing container only if it exists
-            if [ "$(docker ps -a -q -f name=mysite)" ]; then
-              echo "Stopping existing container..."
-              docker stop mysite
-              echo "Removing existing container..."
-              docker rm mysite
+            # Optional: login to Docker Hub (uncomment if private image or rate limits)
+            # echo "${DOCKERHUB_PAT}" | docker login -u helven0 --password-stdin
+            docker pull "$FULL_IMAGE"
+            if [ "$(docker ps -q -f name=mysite)" ]; then
+              docker stop mysite || true
+              docker rm mysite || true
             fi
-            # Run new container mapping host port 80 to container port 80
-            echo "Starting new container..."
-            docker run --name mysite -p 80:80 -d helven0/devops_portfolio:latest
-            # Verify container is running
+            docker run --name mysite -p 80:80 -d "$FULL_IMAGE"
             docker ps --filter "name=mysite"
           EOF
+        env:
+          DOCKERHUB_PAT: ${{ secrets.DOCKERHUB_PAT }}
 
-      # Step 6: Send release notes (runs even if TEAMS_WEBHOOK not set; prints to logs)
-      - name: "Send Release Notes to Teams (or log)"
+      - name: (Optional) Verify artifact on server if verifier exists (non-fatal)
+        if: always()
         run: |
-          # Ensure release script exists and is executable
+          # Run verifier only if the script exists on the server
+          ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} 'bash -s' <<'SSH'
+            if [ -x /opt/scripts/artifact_verifier.sh ]; then
+              /opt/scripts/artifact_verifier.sh "${DIGEST}" || echo "Verifier returned non-zero"
+            else
+              echo "No verifier found on server; skipping verification."
+            fi
+SSH
+
+      - name: Checkout repository again for release notes
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Send release notes to Teams (PR-level)
+        env:
+          TEAMS_WEBHOOK: ${{ secrets.TEAMS_WEBHOOK }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
           if [ -f ./scripts/release_notes.sh ]; then
             chmod +x ./scripts/release_notes.sh
             ./scripts/release_notes.sh
           else
-            echo "Release notes script not found at ./scripts/release_notes.sh"
+            echo "No release_notes.sh found at ./scripts/release_notes.sh"
           fi
-        env:
-          TEAMS_WEBHOOK: ${{ secrets.TEAMS_WEBHOOK }}
-          GITHUB_SHA: ${{ github.sha }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
