@@ -44,7 +44,8 @@ jobs:
           echo "REPO_DIGEST=$REPO_DIGEST" >> $GITHUB_OUTPUT
           echo "DIGEST=$DIGEST" >> $GITHUB_OUTPUT
           echo "IMAGE=$IMAGE" >> $GITHUB_OUTPUT
-          printf '{"image":"%s","repo_digest":"%s","digest":"%s","git_sha":"%s"}\n' "$IMAGE" "$REPO_DIGEST" "$DIGEST" "${GITHUB_SHA}" > artifact-metadata.json
+          printf '{"image":"%s","repo_digest":"%s","digest":"%s","git_sha":"%s"}\n' \
+            "$IMAGE" "$REPO_DIGEST" "$DIGEST" "${GITHUB_SHA}" > artifact-metadata.json
 
       - name: Upload artifact metadata
         uses: actions/upload-artifact@v4
@@ -63,13 +64,11 @@ jobs:
           DIGEST: ${{ steps.capture.outputs.DIGEST }}
         run: |
           echo "Deploying digest: ${DIGEST}"
-          # Build remote image reference (expanded locally)
           if [ -n "${DIGEST}" ]; then
             REMOTE_IMAGE="helven0/devops_portfolio@${DIGEST}"
           else
             REMOTE_IMAGE="helven0/devops_portfolio:latest"
           fi
-          # Remote commands run on EC2; escape remote $ and command substitution with backslash so evaluation happens remotely
           ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} \
             "set -euo pipefail; docker pull '${REMOTE_IMAGE}'; if [ \"\$(docker ps -q -f name=mysite)\" ]; then docker stop mysite || true; docker rm mysite || true; fi; docker run --name mysite -p 80:80 -d '${REMOTE_IMAGE}'; sleep 3; if curl -sf http://127.0.0.1/ >/dev/null; then echo 'HEALTH_OK'; else echo 'HEALTH_FAIL' >&2; exit 2; fi"
 
@@ -97,7 +96,9 @@ jobs:
           DIGEST: ${{ steps.capture.outputs.DIGEST }}
         run: |
           mkdir -p deploy
-          echo "{\"digest\":\"${DIGEST}\",\"time\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"git_sha\":\"${GITHUB_SHA}\"}" > deploy/last_good.json
+          # Write JSON safely using printf to avoid shell/quote issues
+          printf '{"digest":"%s","time":"%s","git_sha":"%s"}\n' \
+            "${DIGEST}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${GITHUB_SHA}" > deploy/last_good.json
           git config user.email "actions@github.com"
           git config user.name "github-actions[bot]"
           git add deploy/last_good.json || true
@@ -133,7 +134,8 @@ PY
           TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           if [ "${{ steps.deploy_step.outcome }}" = "success" ]; then VERIFY="OK"; else VERIFY="FAIL"; fi
           AUDIT_SUM=$(head -n 20 docker_audit_output.txt | tr '\n' ' ' | tr -s ' ')
-          echo "{\"timestamp\":\"${TIMESTAMP}\",\"digest\":\"${DIGEST}\",\"verify_summary\":\"${VERIFY}\",\"audit_summary\":\"${AUDIT_SUM}\"}" > docs/health.json
+          printf '{"timestamp":"%s","digest":"%s","verify_summary":"%s","audit_summary":"%s"}\n' \
+            "${TIMESTAMP}" "${DIGEST}" "${VERIFY}" "${AUDIT_SUM}" > docs/health.json
           git add docs/health.json || true
           git commit -m "Update health.json at ${TIMESTAMP}" || echo "no changes to commit"
           git push || echo "push failed (branch protections?)"
