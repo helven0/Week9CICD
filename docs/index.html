@@ -1,31 +1,123 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>DeployGuard Dashboard</title>
   <style>
-    body { font-family: Arial, sans-serif; padding: 20px; max-width:900px; margin:auto; }
-    .card { border:1px solid #ddd; padding: 12px; margin:12px 0; border-radius:8px; }
-    pre { white-space: pre-wrap; word-wrap: break-word; }
+    :root {
+      --bg: #f6f8fa;
+      --card: #ffffff;
+      --muted: #6b7280;
+      --accent: #0b5fff;
+      --ok: #107b1a;
+      --fail: #b91c1c;
+    }
+    body { font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; background: var(--bg); margin:0; padding:24px; color:#0f172a; }
+    .container { max-width: 900px; margin: 0 auto; }
+    header { display:flex; align-items:center; gap:12px; margin-bottom:18px; }
+    h1 { margin:0; font-size:20px; }
+    .card { background:var(--card); border-radius:12px; padding:18px; box-shadow: 0 6px 18px rgba(12,18,30,0.06); margin-bottom:14px; }
+    .meta { color:var(--muted); font-size:13px; margin-top:6px; }
+    .row { display:flex; gap:12px; flex-wrap:wrap; }
+    .small { font-size:13px; color:var(--muted); }
+    pre { background:#0f172a10; padding:12px; border-radius:8px; overflow:auto; white-space:pre-wrap; word-break:break-word; }
+    .pill { padding:6px 10px; border-radius:999px; font-weight:600; font-size:13px; display:inline-block; }
+    .ok { background: #e6f6ea; color:var(--ok); }
+    .fail { background: #ffe9e9; color:var(--fail); }
+    footer { font-size:13px; color:var(--muted); margin-top:18px; text-align:center; }
   </style>
 </head>
 <body>
-  <h1>DeployGuard Dashboard</h1>
-  <div id="lastupdate" class="card">Loading...</div>
-  <div id="digest" class="card"></div>
-  <div id="verify" class="card"></div>
-  <div id="audit" class="card"></div>
+  <div class="container">
+    <header>
+      <div>
+        <h1>DeployGuard Dashboard</h1>
+        <div class="meta">Quick status for your portfolio demo</div>
+      </div>
+    </header>
+
+    <div id="error" class="card" style="display:none;">
+      <strong>Error loading health.json</strong>
+      <div class="small" id="error-details"></div>
+    </div>
+
+    <div id="main" style="display:none;">
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div class="small">Last update</div>
+            <div id="lastupdate" style="font-weight:600">—</div>
+            <div class="meta" id="gitsha" style="margin-top:6px">Digest: —</div>
+          </div>
+          <div style="text-align:right">
+            <div class="small">Verification</div>
+            <div id="verify-pill" class="pill">—</div>
+            <div style="height:6px"></div>
+            <div class="small">Audit summary</div>
+            <div id="audit" class="small">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin:0 0 8px 0">Recent activity</h3>
+        <div id="recent" class="small">No recent data</div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin:0 0 8px 0">Raw health.json (for debugging)</h3>
+        <pre id="raw">Loading…</pre>
+      </div>
+    </div>
+
+    <footer>
+      <div>Hosted via GitHub Pages • Only summary information shown</div>
+    </footer>
+  </div>
 
   <script>
-    fetch('health.json').then(r => r.json()).then(j => {
-      document.getElementById('lastupdate').textContent = 'Last update: ' + (j.timestamp || 'n/a');
-      document.getElementById('digest').innerHTML = '<strong>Deployed digest</strong><pre>' + (j.digest || 'n/a') + '</pre>';
-      document.getElementById('verify').innerHTML = '<strong>Verification</strong><pre>' + (j.verify_summary || 'n/a') + '</pre>';
-      document.getElementById('audit').innerHTML = '<strong>Audit (short)</strong><pre>' + (j.audit_summary || 'n/a') + '</pre>';
-    }).catch(e => {
-      document.getElementById('lastupdate').textContent = 'Error loading health.json';
-      console.error(e);
-    });
+    async function loadHealth() {
+      const errEl = document.getElementById('error');
+      const errDetails = document.getElementById('error-details');
+      const mainEl = document.getElementById('main');
+      try {
+        const res = await fetch('./health.json', { cache: 'no-store' });
+        if (!res.ok) {
+          throw new Error('HTTP ' + res.status + ' ' + res.statusText);
+        }
+        const j = await res.json();
+        // update UI
+        document.getElementById('lastupdate').textContent = j.timestamp || 'n/a';
+        document.getElementById('gitsha').textContent = 'Digest: ' + (j.digest || 'n/a');
+        document.getElementById('audit').textContent = j.audit_summary || 'n/a';
+        const pill = document.getElementById('verify-pill');
+        const vs = (j.verify_summary || 'not configured').toLowerCase();
+        pill.textContent = (j.verify_summary || 'not configured');
+        pill.className = 'pill ' + (vs === 'ok' ? 'ok' : (vs === 'fail' ? 'fail' : ''));
+        // recent activity (if available)
+        let recent = 'No recent data';
+        if (j.recent && Array.isArray(j.recent) && j.recent.length) {
+          recent = j.recent.slice(0,10).map(r => {
+            if (r.title && r.link) return `<div><a href="${r.link}" target="_blank" rel="noopener">${r.title}</a> <span style="color:var(--muted)">(${r.who||''})</span></div>`;
+            return `<div>${JSON.stringify(r)}</div>`;
+          }).join('');
+        } else {
+          recent = '<div class="small">No recent items provided.</div>';
+        }
+        document.getElementById('recent').innerHTML = recent;
+        document.getElementById('raw').textContent = JSON.stringify(j, null, 2);
+        errEl.style.display = 'none';
+        mainEl.style.display = 'block';
+      } catch (err) {
+        console.error('Failed to load health.json', err);
+        mainEl.style.display = 'none';
+        errEl.style.display = 'block';
+        errDetails.textContent = String(err);
+        document.getElementById('raw').textContent = '';
+      }
+    }
+    loadHealth();
   </script>
 </body>
 </html>
