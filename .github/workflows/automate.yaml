@@ -48,12 +48,10 @@ jobs:
             DIGEST="${REPO_DIGEST#*@}"
           fi
 
-          # expose outputs
           echo "REPO_DIGEST=$REPO_DIGEST" >> $GITHUB_OUTPUT
           echo "DIGEST=$DIGEST" >> $GITHUB_OUTPUT
           echo "IMAGE=$IMAGE" >> $GITHUB_OUTPUT
 
-          # small artifact file for download from Actions UI
           printf '{"image":"%s","repo_digest":"%s","digest":"%s","git_sha":"%s"}\n' \
             "$IMAGE" "$REPO_DIGEST" "$DIGEST" "${GITHUB_SHA}" > artifact-metadata.json
 
@@ -82,18 +80,19 @@ jobs:
             FULL_IMAGE="${IMAGE_TAG}"
           fi
 
-          # Use a here-doc for the remote script. FULL_IMAGE is expanded locally into the heredoc;
-          # remote command substitutions are escaped so they run on the server.
-          ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} bash -s <<'ENDSSH'
+          # Pass FULL_IMAGE to the remote bash and pipe a script (heredoc) to it.
+          # FULL_IMAGE is expanded locally here (on the runner) and becomes an env var
+          # available inside the remote script.
+          ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} "FULL_IMAGE='${FULL_IMAGE}' bash -s" <<'ENDSSH'
 set -euo pipefail
-# Note: FULL_IMAGE will be substituted locally before sending this heredoc,
-# so refer to the expanded value via the environment variable passed in.
-docker pull "${FULL_IMAGE}"
+
+# On the remote server, use the FULL_IMAGE environment variable passed in.
+docker pull "$FULL_IMAGE"
 if [ "$(docker ps -q -f name=mysite)" ]; then
   docker stop mysite || true
   docker rm mysite || true
 fi
-docker run --name mysite -p 80:80 -d "${FULL_IMAGE}"
+docker run --name mysite -p 80:80 -d "$FULL_IMAGE"
 docker ps --filter "name=mysite"
 ENDSSH
 
@@ -101,9 +100,10 @@ ENDSSH
         id: audit
         shell: bash
         run: |
-          # run the audit script on the server and save the output locally
           ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} '/opt/scripts/docker_audit.sh' > docker_audit_output.txt || true
           echo "docker audit saved to docker_audit_output.txt"
+          echo "----- docker_audit_output.txt (first 40 lines) -----"
+          head -n 40 docker_audit_output.txt || true
 
       - name: Upload docker audit artifact
         uses: actions/upload-artifact@v4
@@ -131,17 +131,30 @@ ENDSSH
           git commit -m "Update last_good digest to ${DIGEST}" || echo "no changes to commit"
           git push || echo "git push failed (branch protections?)"
 
-      - name: Build docs/health.json and push to docs/
+      - name: Build docs/health.json
         env:
           DIGEST: ${{ steps.capture.outputs.DIGEST }}
         shell: bash
         run: |
           TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # keep the audit summary short and escape quotes (so JSON stays valid)
           AUDIT_SUMMARY="$(head -n 20 docker_audit_output.txt | tr '\n' ' ' | tr -s ' ' | sed 's/"/\\"/g')"
+          mkdir -p docs
           echo "{\"timestamp\":\"${TIMESTAMP}\",\"digest\":\"${DIGEST}\",\"verify_summary\":\"not configured\",\"audit_summary\":\"${AUDIT_SUMMARY}\"}" > docs/health.json
-          git add docs/health.json || true
-          git commit -m "Update health.json at ${TIMESTAMP}" || echo "no changes to commit"
-          git push || echo "git push failed (branch protections?)"
+          echo "Created docs/health.json:"
+          cat docs/health.json
+
+      - name: Show docs/health.json (debug)
+        shell: bash
+        run: |
+          echo "----- docs/health.json contents -----"
+          cat docs/health.json || echo "docs/health.json not found"
+
+      - name: Deploy docs/ to GitHub Pages (works with branch-protected main)
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs
 
       - name: Send release notes to Teams (PR-level)
         env:
