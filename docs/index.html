@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>DeployGuard Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width:900px; margin:auto; }
+    .card { border:1px solid #ddd; padding: 12px; margin:12px 0; border-radius:8px; }
+    pre { white-space: pre-wrap; word-wrap: break-word; }
+  </style>
+</head>
+<body>
+  <h1>DeployGuard Dashboard</h1>
+  <div id="lastupdate" class="card">Loading...</div>
+  <div id="digest" class="card"></div>
+  <div id="verify" class="card"></div>
+  <div id="audit" class="card"></div>
+
+  <script>
+    fetch('health.json').then(r => r.json()).then(j => {
+      document.getElementById('lastupdate').textContent = 'Last update: ' + (j.timestamp || 'n/a');
+      document.getElementById('digest').innerHTML = '<strong>Deployed digest</strong><pre>' + (j.digest || 'n/a') + '</pre>';
+      document.getElementById('verify').innerHTML = '<strong>Verification</strong><pre>' + (j.verify_summary || 'n/a') + '</pre>';
+      document.getElementById('audit').innerHTML = '<strong>Audit (short)</strong><pre>' + (j.audit_summary || 'n/a') + '</pre>';
+    }).catch(e => {
+      document.getElementById('lastupdate').textContent = 'Error loading health.json';
+      console.error(e);
+    });
+  </script>
+</body>
+</html>
