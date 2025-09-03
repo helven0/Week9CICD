@@ -1,23 +1,20 @@
 name: "Deploy to Server"
-
 # Trigger this workflow on push to the main branch
 on:
   push:
     branches:
       - main
-
 jobs:
   deploy:
     runs-on: ubuntu-latest  # Use latest Ubuntu runner
-
     env:
       SERVER_IP: ${{ vars.SERVER_IP }}  # Server IP from GitHub variables
-
     steps:
-      # Step 1: Checkout repository
+      # Step 1: Checkout repository (full history for release notes)
       - name: "Checkout Repository"
         uses: actions/checkout@v3
-        # Ensures workflow has access to all repo files, including Dockerfile, index.html, style.css
+        with:
+          fetch-depth: 0
 
       # Step 2: Build Docker image and push to Docker Hub
       - name: "Build and Push Docker Image"
@@ -33,7 +30,7 @@ jobs:
         env:
           DOCKERHUB_PAT: ${{ secrets.DOCKERHUB_PAT }}
 
-      # Step 3: Configure SSH on the rr
+      # Step 3: Configure SSH on the runner
       - name: "Configure SSH"
         run: |
           mkdir -p ~/.ssh
@@ -61,27 +58,39 @@ jobs:
       - name: "Pull Image and Restart Container"
         run: |
           ssh -i pem.pem ubuntu@$SERVER_IP << 'EOF'
+            set -e
             # Stop host Nginx temporarily if it's running (avoids port 80 conflicts)
             if systemctl is-active --quiet nginx; then
               echo "Stopping host Nginx..."
               sudo systemctl stop nginx
             fi
-
             # Pull latest Docker image from Docker Hub
             docker pull helven0/devops_portfolio:latest
-
             # Stop and remove existing container only if it exists
-            if [ $(docker ps -a -q -f name=mysite) ]; then
+            if [ "$(docker ps -a -q -f name=mysite)" ]; then
               echo "Stopping existing container..."
               docker stop mysite
               echo "Removing existing container..."
               docker rm mysite
             fi
-
             # Run new container mapping host port 80 to container port 80
             echo "Starting new container..."
             docker run --name mysite -p 80:80 -d helven0/devops_portfolio:latest
-
             # Verify container is running
             docker ps --filter "name=mysite"
           EOF
+
+      # Step 6: Send release notes (runs even if TEAMS_WEBHOOK not set; prints to logs)
+      - name: "Send Release Notes to Teams (or log)"
+        run: |
+          # Ensure release script exists and is executable
+          if [ -f ./scripts/release_notes.sh ]; then
+            chmod +x ./scripts/release_notes.sh
+            ./scripts/release_notes.sh
+          else
+            echo "Release notes script not found at ./scripts/release_notes.sh"
+          fi
+        env:
+          TEAMS_WEBHOOK: ${{ secrets.TEAMS_WEBHOOK }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
