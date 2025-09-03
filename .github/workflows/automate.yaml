@@ -1,10 +1,10 @@
-name: "Deploy to Server"
+name: Deploy to Server
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -27,12 +27,13 @@ jobs:
           password: ${{ secrets.DOCKERHUB_PAT }}
 
       - name: Build and push Docker image
+        shell: bash
+        env:
+          DOCKERHUB_PAT: ${{ secrets.DOCKERHUB_PAT }}
         run: |
           IMAGE="helven0/devops_portfolio:latest"
           docker build -t "$IMAGE" -f Dockerfile .
           docker push "$IMAGE"
-        env:
-          DOCKERHUB_PAT: ${{ secrets.DOCKERHUB_PAT }}
 
       - name: Capture pushed image digest and upload metadata
         id: capture
@@ -42,7 +43,10 @@ jobs:
           # ensure the registry digest is present locally
           docker pull "$IMAGE" || true
           REPO_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE" || true)"
-          DIGEST="${REPO_DIGEST#*@}"
+          DIGEST=""
+          if [ -n "$REPO_DIGEST" ]; then
+            DIGEST="${REPO_DIGEST#*@}"
+          fi
 
           # expose outputs
           echo "REPO_DIGEST=$REPO_DIGEST" >> $GITHUB_OUTPUT
@@ -60,6 +64,7 @@ jobs:
           path: artifact-metadata.json
 
       - name: Prepare SSH key
+        shell: bash
         run: |
           echo "${{ secrets.SSH_KEY64 }}" | base64 -d > pem.pem
           chmod 400 pem.pem
@@ -68,6 +73,7 @@ jobs:
         id: deploy_step
         env:
           DIGEST: ${{ steps.capture.outputs.DIGEST }}
+        shell: bash
         run: |
           IMAGE_TAG="helven0/devops_portfolio:latest"
           if [ -n "${DIGEST}" ]; then
@@ -76,12 +82,14 @@ jobs:
             FULL_IMAGE="${IMAGE_TAG}"
           fi
 
-          # Use a here-doc for the remote script.
-          # FULL_IMAGE is expanded locally into the heredoc; remote command substitutions are escaped
-          ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} bash -s <<ENDSSH
+          # Use a here-doc for the remote script. FULL_IMAGE is expanded locally into the heredoc;
+          # remote command substitutions are escaped so they run on the server.
+          ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} bash -s <<'ENDSSH'
 set -euo pipefail
+# Note: FULL_IMAGE will be substituted locally before sending this heredoc,
+# so refer to the expanded value via the environment variable passed in.
 docker pull "${FULL_IMAGE}"
-if [ "\$(docker ps -q -f name=mysite)" ]; then
+if [ "$(docker ps -q -f name=mysite)" ]; then
   docker stop mysite || true
   docker rm mysite || true
 fi
@@ -91,6 +99,7 @@ ENDSSH
 
       - name: Run docker audit on EC2 (capture output)
         id: audit
+        shell: bash
         run: |
           # run the audit script on the server and save the output locally
           ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} '/opt/scripts/docker_audit.sh' > docker_audit_output.txt || true
@@ -112,6 +121,7 @@ ENDSSH
         if: ${{ success() }}
         env:
           DIGEST: ${{ steps.capture.outputs.DIGEST }}
+        shell: bash
         run: |
           mkdir -p deploy
           echo "{\"digest\":\"${DIGEST}\",\"time\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"git_sha\":\"${GITHUB_SHA}\"}" > deploy/last_good.json
@@ -124,9 +134,10 @@ ENDSSH
       - name: Build docs/health.json and push to docs/
         env:
           DIGEST: ${{ steps.capture.outputs.DIGEST }}
+        shell: bash
         run: |
           TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          AUDIT_SUMMARY="$(head -n 20 docker_audit_output.txt | tr '\n' ' ' | tr -s ' ')"
+          AUDIT_SUMMARY="$(head -n 20 docker_audit_output.txt | tr '\n' ' ' | tr -s ' ' | sed 's/"/\\"/g')"
           echo "{\"timestamp\":\"${TIMESTAMP}\",\"digest\":\"${DIGEST}\",\"verify_summary\":\"not configured\",\"audit_summary\":\"${AUDIT_SUMMARY}\"}" > docs/health.json
           git add docs/health.json || true
           git commit -m "Update health.json at ${TIMESTAMP}" || echo "no changes to commit"
@@ -138,6 +149,7 @@ ENDSSH
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+        shell: bash
         run: |
           if [ -f ./scripts/release_notes.sh ]; then
             chmod +x ./scripts/release_notes.sh
