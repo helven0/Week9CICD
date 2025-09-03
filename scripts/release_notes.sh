@@ -5,7 +5,6 @@ WEBHOOK="${TEAMS_WEBHOOK:-}"
 GHTOKEN="${GITHUB_TOKEN:-}"
 REPO="${GITHUB_REPOSITORY:-}"
 SHA="${GITHUB_SHA:-}"
-
 if [ -z "$REPO" ]; then
   echo "GITHUB_REPOSITORY not set; exiting"
   exit 2
@@ -14,60 +13,101 @@ fi
 OWNER=$(echo "$REPO" | cut -d/ -f1)
 REPO_NAME=$(echo "$REPO" | cut -d/ -f2)
 
+# Find a since date: last tag date or 7 days ago
 LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
 if [ -n "$LAST_TAG" ]; then
-  TAG_DATE=$(git log -1 --format=%cI "$LAST_TAG")
-  SINCE_DATE="$TAG_DATE"
+  SINCE_DATE=$(git log -1 --format=%cI "$LAST_TAG")
 else
   SINCE_DATE=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
 fi
 
-SEARCH_URL="https://api.github.com/search/issues?q=repo:${OWNER}/${REPO_NAME}+is:pr+is:merged+merged:>${SINCE_DATE}&per_page=100"
+# Query merged PRs since SINCE_DATE
+PR_API="https://api.github.com/search/issues?q=repo:${OWNER}/${REPO_NAME}+is:pr+is:merged+merged:>${SINCE_DATE}&per_page=50"
+PR_JSON=$(curl -s -H "Accept: application/vnd.github+json" -H "Authorization: token ${GHTOKEN}" "$PR_API")
 
-PR_PAYLOAD=""
-if [ -n "$GHTOKEN" ]; then
-  PR_PAYLOAD=$(curl -s -H "Accept: application/vnd.github+json" -H "Authorization: token ${GHTOKEN}" "$SEARCH_URL" || true)
-fi
-
-PR_LIST=$(printf "%s" "$PR_PAYLOAD" | python3 - <<'PY'
+# Build PR lines: up to 8 PRs
+PR_LINES=$(echo "$PR_JSON" | python3 - <<PY
 import sys,json
-data=sys.stdin.read().strip()
+data=sys.stdin.read()
 if not data:
+    print('')
     sys.exit(0)
-try:
-    j=json.loads(data)
-except Exception:
-    sys.exit(0)
-items=j.get("items",[])
+j=json.loads(data)
+items=j.get('items',[])[:8]
 out=[]
 for it in items:
-    num=it.get("number")
-    title=it.get("title","").strip()
-    user=(it.get("user") or {}).get("login","unknown")
-    url=it.get("html_url","")
-    out.append(f"- #{num} {title} ({user}) - {url}")
-print("\n".join(out))
+    num=it.get('number')
+    title=it.get('title','').strip()
+    user=(it.get('user') or {}).get('login','unknown')
+    url=it.get('html_url','')
+    out.append(f"- [{title}]({url}) (#{num} by {user})")
+print("\\n".join(out))
 PY
 )
 
-if [ -n "$PR_LIST" ]; then
-  BODY="**Release notes for ${REPO}**\nDeployed commit: ${SHA}\n\n_The following PRs were merged since ${SINCE_DATE}:_\n\n${PR_LIST}"
+if [ -z "$PR_LINES" ]; then
+  # fallback: recent commits
+  COMMITS=$(git --no-pager log --no-merges --pretty=format:"- %h %s (%an)" HEAD~10..HEAD || echo "No commits")
+  BODY_MD="**Deployed commit:** ${SHA}\n\n**Recent commits:**\n${COMMITS}"
 else
-  if [ -n "$LAST_TAG" ]; then
-    RANGE="${LAST_TAG}..HEAD"
-  else
-    RANGE="HEAD~10..HEAD"
-  fi
-  COMMITS=$(git --no-pager log --no-merges --pretty=format:"- %h %s (%an)" "$RANGE" || echo "No commits")
-  BODY="**Release notes for ${REPO}**\nDeployed commit: ${SHA}\n\n_The following commits were detected:_\n\n${COMMITS}"
+  BODY_MD="**Deployed commit:** ${SHA}\n\n**Merged PRs since ${SINCE_DATE}:**\n${PR_LINES}"
 fi
 
-PAYLOAD=$(printf "%s" "$BODY" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')
-FINAL_JSON="{\"text\": $PAYLOAD}"
+# Build a simple Adaptive Card (Microsoft Teams)
+CARD=$(cat <<JSON
+{
+  "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+  "type": "AdaptiveCard",
+  "version": "1.3",
+  "body": [
+    {
+      "type": "TextBlock",
+      "size": "Medium",
+      "weight": "Bolder",
+      "text": "DeployGuard — Release Notes",
+      "wrap": true
+    },
+    {
+      "type": "TextBlock",
+      "text": "Repository: ${REPO}",
+      "wrap": true,
+      "spacing": "None"
+    },
+    {
+      "type": "TextBlock",
+      "text": "${SHA}",
+      "wrap": true,
+      "isSubtle": true,
+      "spacing": "None"
+    },
+    {
+      "type": "TextBlock",
+      "text": "Changes:",
+      "wrap": true,
+      "separator": true
+    },
+    {
+      "type": "TextBlock",
+      "text": "$(echo "$BODY_MD" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')",
+      "wrap": true,
+      "spacing": "None"
+    }
+  ],
+  "actions": [
+    {
+      "type": "Action.OpenUrl",
+      "title": "View repository",
+      "url": "https://github.com/${REPO}"
+    }
+  ]
+}
+JSON
+)
 
 if [ -n "$WEBHOOK" ]; then
-  curl -s -X POST -H "Content-Type: application/json" -d "$FINAL_JSON" "$WEBHOOK" || true
-  echo "Posted release notes to Teams."
+  # Teams incoming webhooks expect content-type application/json
+  curl -s -S -X POST -H "Content-Type: application/json" -d "$CARD" "$WEBHOOK" || true
+  echo "Posted Adaptive Card to Teams."
 else
-  echo -e "---- Release Notes ----\n$BODY\n-----------------------"
+  echo -e "---- Release Notes (preview) ----\n$BODY_MD\n-----------------------"
 fi
