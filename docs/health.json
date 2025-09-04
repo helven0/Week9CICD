@@ -1,1 +1,18 @@
-{"timestamp":"2025-09-04T00:06:57Z","digest":"sha256:a87dd845b5a9b2e1d06363d662b1f5a271d612eda7c3d0ebfb0ea07b6c1fec9d","verify_summary":"OK","audit_summary":""}
+{
+  "timestamp": "2025-09-04T00:08:22Z",
+  "deployed": {
+    "digest": "unchanged",
+    "commit": "unchanged",
+    "author": "unchanged"
+  },
+  "verification": {
+    "status": "not checked",
+    "outcome": "sweep"
+  },
+  "audit": {
+    "running_containers": ["NAMES     IMAGE                      STATUS","mysite    helven0/devops_portfolio   Up About a minute","","=== All containers (including stopped) ==="],
+    "all_containers": ["NAMES     IMAGE                      STATUS              CREATED AT","mysite    helven0/devops_portfolio   Up About a minute   2025-09-04 00:06:52 +0000 UTC","","=== Dangling images ==="],
+    "dangling_images": ["REPOSITORY                 IMAGE ID       CREATED","helven0/devops_portfolio   0ab4a1d2c2be   4 minutes ago","helven0/devops_portfolio   92a3733bb453   8 minutes ago","helven0/devops_portfolio   b3b84305fa4d   9 minutes ago","helven0/devops_portfolio   b6a37f90f36d   17 minutes ago","helven0/devops_portfolio   6c281471592b   32 minutes ago","helven0/devops_portfolio   2b4a3c4ab4b7   38 minutes ago","helven0/devops_portfolio   e15f6311dd3d   55 minutes ago","","=== Largest images (top 10) ==="],
+    "largest_images": ["helven0/custom-nginx:latest\ta0cd466c9a60\t52.5MB","helven0/devops_portfolio:<none>\t0ab4a1d2c2be\t196MB","helven0/devops_portfolio:<none>\t2b4a3c4ab4b7\t196MB","helven0/devops_portfolio:<none>\t6c281471592b\t196MB","helven0/devops_portfolio:<none>\t92a3733bb453\t196MB","helven0/devops_portfolio:<none>\tb3b84305fa4d\t196MB","helven0/devops_portfolio:<none>\tb6a37f90f36d\t196MB","helven0/devops_portfolio:<none>\te15f6311dd3d\t196MB","","Summary:","Running containers: 1","Stopped containers: 0","Dangling images: 7"]
+  }
+}
