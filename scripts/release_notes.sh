@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# release_notes.sh
+# Outputs structured release notes to Teams via Adaptive Card, with fallback to text message.
+# Env vars used:
+#   TEAMS_WEBHOOK  - Teams incoming webhook URL (required to post)
+#   GITHUB_TOKEN   - optional GitHub token to increase API rate limits
+#   GITHUB_REPOSITORY - owner/repo (if running outside GH actions)
+#   GITHUB_SHA     - deployed commit SHA (optional)
+
 WEBHOOK="${TEAMS_WEBHOOK:-}"
 GHTOKEN="${GITHUB_TOKEN:-}"
 REPO="${GITHUB_REPOSITORY:-}"
@@ -22,11 +30,17 @@ LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
 if [ -n "$LAST_TAG" ]; then
   SINCE_DATE=$(git log -1 --format=%cI "$LAST_TAG")
 else
-  SINCE_DATE=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
+  # fallback to 7 days ago in UTC
+  if date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ >/dev/null 2>&1; then
+    SINCE_DATE=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
+  else
+    # portable BSD date fallback (macOS)
+    SINCE_DATE=$(date -u -v -7d +%Y-%m-%dT%H:%M:%SZ)
+  fi
 fi
 echo "Collecting merged PRs since: $SINCE_DATE"
 
-# Query merged PRs
+# Query merged PRs (limit to 12 items)
 PR_API="https://api.github.com/search/issues?q=repo:${OWNER}/${REPO_NAME}+is:pr+is:merged+merged:>${SINCE_DATE}&per_page=50"
 if [ -n "${GHTOKEN:-}" ]; then
   PR_JSON=$(curl -sS -H "Accept: application/vnd.github+json" -H "Authorization: token ${GHTOKEN}" "$PR_API")
@@ -34,52 +48,67 @@ else
   PR_JSON=$(curl -sS -H "Accept: application/vnd.github+json" "$PR_API")
 fi
 
-# Build JSON array of PR items (title, url, num, user)
+# Build JSON array of PR items (num, title, user, url) using python3 for robust parsing
 PR_ITEMS=$(echo "$PR_JSON" | python3 - <<'PY'
 import sys, json
 s=sys.stdin.read().strip()
 if not s:
     print("[]")
     sys.exit(0)
-j=json.loads(s)
+try:
+    j=json.loads(s)
+except Exception:
+    print("[]")
+    sys.exit(0)
 out=[]
-for it in j.get("items",[])[:8]:
-    out.append({"num": it.get("number"), "title": it.get("title","").strip(), "user": (it.get("user") or {}).get("login","unknown"), "url": it.get("html_url","")})
+for it in j.get("items",[])[:12]:
+    out.append({
+        "num": it.get("number"),
+        "title": (it.get("title") or "").strip(),
+        "user": (it.get("user") or {}).get("login","unknown"),
+        "url": it.get("html_url","")
+    })
 print(json.dumps(out))
 PY
 )
 
-# Compose markdown body safely with jq
+# If PR_ITEMS present -> build structured body; else fallback to recent commits text
 if [ "$(echo "$PR_ITEMS" | jq 'length')" -gt 0 ]; then
-  # build markdown list from PR_ITEMS
+  # Build a Markdown-ish body for fallback and log (keeps old behavior)
   MD_LINES=$(echo "$PR_ITEMS" | jq -r '.[] | "- [" + (.title) + "](" + .url + ") (#"+(.num|tostring)+" by "+.user+")"')
-  BODY_MD="**Deployed commit:** ${SHA}\n\n**Merged PRs since ${SINCE_DATE}:**\n${MD_LINES}"
+  BODY_MD="**Deployed commit:** ${SHA:-N/A}\n\n**Merged PRs since ${SINCE_DATE}:**\n${MD_LINES}"
 else
   COMMITS=$(git --no-pager log --no-merges --pretty=format:"- %h %s (%an)" HEAD~10..HEAD || echo "No commits")
-  BODY_MD="**Deployed commit:** ${SHA}\n\n**Recent commits:**\n${COMMITS}"
+  BODY_MD="**Deployed commit:** ${SHA:-N/A}\n\n**Recent commits:**\n${COMMITS}"
 fi
 
 echo "Prepared release notes (truncated):"
 printf '%s\n' "$BODY_MD" | sed -n '1,20p'
 
-# Build Adaptive Card using jq (robust against special characters)
+# Build an Adaptive Card that places each PR as its own TextBlock (renders clearer in Teams)
+# We pass the PR items into jq as JSON and map them to TextBlock items.
 CARD_JSON=$(jq -n \
-  --arg title "DeployGuard — Release Notes" \
+  --arg title "🚀 DeployGuard — Release Notes" \
   --arg repo "$REPO" \
-  --arg sha "$SHA" \
-  --arg body "$BODY_MD" \
+  --arg sha "${SHA:-N/A}" \
+  --arg commiturl "https://github.com/$REPO/commit/${SHA:-}" \
+  --argjson prs "$PR_ITEMS" \
   '{
     "$schema":"http://adaptivecards.io/schemas/adaptive-card.json",
     "type":"AdaptiveCard",
     "version":"1.3",
-    "body":[
-      {"type":"TextBlock","size":"Medium","weight":"Bolder","text":$title},
-      {"type":"TextBlock","text":("Repository: " + $repo),"wrap":true,"spacing":"None"},
-      {"type":"TextBlock","text":$sha,"wrap":true,"isSubtle":true,"spacing":"None"},
-      {"type":"TextBlock","text":"Changes:","wrap":true,"separator":true},
-      {"type":"TextBlock","text":$body,"wrap":true}
-    ],
-    "actions":[{"type":"Action.OpenUrl","title":"View repository","url":("https://github.com/" + $repo)}]
+    "body": (
+      [
+        {"type":"TextBlock","size":"Large","weight":"Bolder","text":$title,"wrap":true},
+        {"type":"TextBlock","text":("📂 Repository: " + $repo),"wrap":true,"spacing":"Small"},
+        {"type":"TextBlock","text":("🔖 Commit: [" + ($sha|if .=="" then "N/A" else . end) + "](" + $commiturl + ")"),"wrap":true,"isSubtle":true,"spacing":"Small"},
+        {"type":"TextBlock","text":"📌 Changes:","weight":"Bolder","wrap":true,"separator":true,"spacing":"Medium"}
+      ]
+    ) + ($prs | if (length>0) then map({type:"TextBlock", text:( ("• " + (.title) + " (" + (.num|tostring) + ") by " + .user + " — " + .url) ), wrap:true, spacing:"Small"}) else [] end)
+  ,
+    "actions":[
+      {"type":"Action.OpenUrl","title":"🔗 View repository","url":("https://github.com/" + $repo)}
+    ]
   }'
 )
 
@@ -101,27 +130,26 @@ fi
 # post the Adaptive Card and capture response code and body
 HTTP_CODE=$(curl -sS -o "$TMP_RESP" -w "%{http_code}" -X POST -H "Content-Type: application/json" -d @"$TMP_PLOAD" "$WEBHOOK" || echo "000")
 echo "Teams post attempt returned HTTP code: ${HTTP_CODE}"
-echo "Teams response body (first 200 chars):"
-head -c 200 "$TMP_RESP" || true
+echo "Teams response body (first 400 chars):"
+head -c 400 "$TMP_RESP" || true
 echo -e "\n--- full body ---"
 cat "$TMP_RESP" || true
 echo "------------------"
 
-# If status not 200 or response mentions 'Summary or Text is required' or similar -> fallback
+# Determine if fallback is needed (non-200 or Teams complains about card)
 BODY_TEXT=$(tr -d '\r' < "$TMP_RESP" | tr -s '\n' ' ' | sed 's/"/\\"/g')
 NEED_FALLBACK=0
 if [ "$HTTP_CODE" != "200" ]; then
   NEED_FALLBACK=1
 fi
-# check response content for typical Teams error
-if echo "$BODY_TEXT" | grep -i -E 'summary or text|required|invalid|error' >/dev/null 2>&1; then
+if echo "$BODY_TEXT" | grep -i -E 'summary or text|required|invalid|error|card' >/dev/null 2>&1; then
   NEED_FALLBACK=1
 fi
 
 if [ "$NEED_FALLBACK" -eq 1 ]; then
   echo "Adaptive Card rejected or non-200 response; sending simple fallback text message."
-  # Build simple JSON with `text` field (Teams accepts this)
-  FALLBACK_PAYLOAD=$(jq -n --arg t "Release: ${REPO} - ${SHA}" --arg b "$BODY_MD" '{"text": ($t + "\n\n" + $b)}')
+  # Keep the fallback compact: title + list (Body MD)
+  FALLBACK_PAYLOAD=$(jq -n --arg t "Release: ${REPO} - ${SHA:-N/A}" --arg b "$BODY_MD" '{"text": ($t + "\n\n" + $b)}')
   echo "$FALLBACK_PAYLOAD" > "$TMP_PLOAD"
   HTTP_CODE2=$(curl -sS -o "$TMP_RESP" -w "%{http_code}" -X POST -H "Content-Type: application/json" -d @"$TMP_PLOAD" "$WEBHOOK" || echo "000")
   echo "Fallback post HTTP code: $HTTP_CODE2"
