@@ -1,18 +1,44 @@
 {
-  "timestamp": "2025-09-04T00:08:22Z",
+  "timestamp": "2025-09-03T23:45:00Z",
   "deployed": {
-    "digest": "unchanged",
-    "commit": "unchanged",
-    "author": "unchanged"
+    "digest": "sha256:386c2b81de019bd53d154834cf83356f107113677c6b6459fb64ef5c0ffd44db",
+    "commit": "a9a32e9f2058227a02e6ca1913a1c37a43ff5e2e",
+    "author": "Suraj Rauniyar"
   },
   "verification": {
-    "status": "not checked",
-    "outcome": "sweep"
+    "status": "not configured",
+    "last_checked": null
   },
   "audit": {
-    "running_containers": ["NAMES     IMAGE                      STATUS","mysite    helven0/devops_portfolio   Up About a minute","","=== All containers (including stopped) ==="],
-    "all_containers": ["NAMES     IMAGE                      STATUS              CREATED AT","mysite    helven0/devops_portfolio   Up About a minute   2025-09-04 00:06:52 +0000 UTC","","=== Dangling images ==="],
-    "dangling_images": ["REPOSITORY                 IMAGE ID       CREATED","helven0/devops_portfolio   0ab4a1d2c2be   4 minutes ago","helven0/devops_portfolio   92a3733bb453   8 minutes ago","helven0/devops_portfolio   b3b84305fa4d   9 minutes ago","helven0/devops_portfolio   b6a37f90f36d   17 minutes ago","helven0/devops_portfolio   6c281471592b   32 minutes ago","helven0/devops_portfolio   2b4a3c4ab4b7   38 minutes ago","helven0/devops_portfolio   e15f6311dd3d   55 minutes ago","","=== Largest images (top 10) ==="],
-    "largest_images": ["helven0/custom-nginx:latest\ta0cd466c9a60\t52.5MB","helven0/devops_portfolio:<none>\t0ab4a1d2c2be\t196MB","helven0/devops_portfolio:<none>\t2b4a3c4ab4b7\t196MB","helven0/devops_portfolio:<none>\t6c281471592b\t196MB","helven0/devops_portfolio:<none>\t92a3733bb453\t196MB","helven0/devops_portfolio:<none>\tb3b84305fa4d\t196MB","helven0/devops_portfolio:<none>\tb6a37f90f36d\t196MB","helven0/devops_portfolio:<none>\te15f6311dd3d\t196MB","","Summary:","Running containers: 1","Stopped containers: 0","Dangling images: 7"]
+    "running_containers": 1,
+    "stopped_containers": 0,
+    "dangling_images": 0,
+    "largest_images": [
+      {
+        "repository": "helven0/custom-nginx",
+        "id": "a0cd466c9a60",
+        "size": "52.5MB"
+      }
+    ],
+    "containers": [
+      {
+        "name": "mysite",
+        "image": "helven0/custom-nginx:latest",
+        "status": "Up 22 minutes",
+        "ports": "0.0.0.0:80->80/tcp"
+      }
+    ]
+  },
+  "recent_changes": {
+    "commits": [
+      {"hash": "ebfa07d", "message": "Update health.json", "author": "github-actions[bot]"},
+      {"hash": "adeb0b6", "message": "Update last_good digest", "author": "github-actions[bot]"},
+      {"hash": "a9a32e9", "message": "4 features workflows update v4", "author": "Suraj Rauniyar"}
+    ]
+  },
+  "server": {
+    "host": "ip-10-0-0-32",
+    "os": "Ubuntu 22.04",
+    "docker_version": "20.10.7"
   }
 }
