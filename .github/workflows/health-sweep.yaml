@@ -1,4 +1,4 @@
-name: Scheduled Health Sweep
+name: Health Sweep (daily audit + dashboard update)
 
 on:
   schedule:
@@ -8,36 +8,59 @@ on:
 jobs:
   sweep:
     runs-on: ubuntu-latest
+
     steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
       - name: Prepare SSH key
         run: |
           echo "${{ secrets.SSH_KEY64 }}" | base64 -d > pem.pem
           chmod 400 pem.pem
 
-      - name: Run docker audit on EC2 and save
+      - name: Run docker audit on EC2 (save output)
         run: |
           ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} '/opt/scripts/docker_audit.sh' > docker_audit_output.txt || true
-          echo "Saved docker audit to docker_audit_output.txt"
+          echo "Saved docker audit output"
 
-      - name: Upload docker audit artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-audit-$(date +'%Y%m%d')
-          path: docker_audit_output.txt
-
-      - name: Update docs/health.json (summary)
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Create summary and push
+      - name: Build docs/health.json (sweep mode)
         run: |
+          mkdir -p docs
           TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          AUDIT_SUM=$(head -n 20 docker_audit_output.txt | tr '\n' ' ' | tr -s ' ')
-          printf '{"timestamp":"%s","digest":"%s","verify_summary":"%s","audit_summary":"%s"}\n' \
-            "$TIMESTAMP" "unknown" "scheduled" "$AUDIT_SUM" > docs/health.json
+
+          RUNNING=$(grep -A100 "=== Running containers ===" docker_audit_output.txt | grep -B100 "=== All containers" | tail -n +2 | jq -R -s -c 'split("\n")[:-1]')
+          ALL_CONTAINERS=$(grep -A100 "=== All containers" docker_audit_output.txt | grep -B100 "=== Dangling images" | tail -n +2 | jq -R -s -c 'split("\n")[:-1]')
+          DANGLING=$(grep -A100 "=== Dangling images" docker_audit_output.txt | grep -B100 "=== Largest images" | tail -n +2 | jq -R -s -c 'split("\n")[:-1]')
+          LARGEST=$(grep -A100 "=== Largest images" docker_audit_output.txt | tail -n +2 | jq -R -s -c 'split("\n")[:-1]')
+
+          cat > docs/health.json <<EOF
+          {
+            "timestamp": "${TIMESTAMP}",
+            "deployed": {
+              "digest": "unchanged",
+              "commit": "unchanged",
+              "author": "unchanged"
+            },
+            "verification": {
+              "status": "not checked",
+              "outcome": "sweep"
+            },
+            "audit": {
+              "running_containers": $RUNNING,
+              "all_containers": $ALL_CONTAINERS,
+              "dangling_images": $DANGLING,
+              "largest_images": $LARGEST
+            }
+          }
+          EOF
+
+          echo "Built docs/health.json:"
+          cat docs/health.json
+
           git config user.email "actions@github.com"
           git config user.name "github-actions[bot]"
-          git add docs/health.json
-          git commit -m "Scheduled health update $TIMESTAMP" || echo "no changes"
+          git add docs/health.json || true
+          git commit -m "Health sweep update ${TIMESTAMP}" || echo "no changes to commit"
           git push || echo "push failed (branch protections?)"
