@@ -1,53 +1,37 @@
 {
-  "timestamp": "2025-09-04T12:15:00Z",
-  "repository": "your-username/your-repo",
+  "timestamp": "2025-09-04T01:23:31Z",
   "deployed": {
-    "digest": "sha256:386c2b81de019bd53d154834cf83356f107113677c6b6459fb64ef5c0ffd44db",
-    "commit": "abc123def456",
-    "author": "deploy-bot"
+    "digest": "sha256:4de81146b9ee2f6eda19b77c1b530d597433f95e23f730bd9a025b99159ff963",
+    "commit": "c1175a9098f5e463c253e98968a5f0c5b33f999f",
+    "author": "Suraj Rauniyar"
   },
   "verification": {
-    "status": "ok",
-    "outcome": "sweep",
-    "last_checked": "2025-09-04T12:16:00Z"
+    "status": "not configured",
+    "outcome": "sweep"
   },
   "audit": {
     "counts": {
       "running": 1,
       "stopped": 0,
-      "dangling": 0
+      "dangling": 15
     },
-    "running_containers": [
-      "webapp_container (id: 9c8a7b6d5e4f) uptime: 2h"
-    ],
-    "dangling_images": [],
-    "largest_images": [
-      { "repository": "your-username/webapp:latest", "size": "245MB" },
-      { "repository": "postgres:15", "size": "120MB" }
-    ]
+    "running_containers": ["NAMES     IMAGE                      STATUS","mysite    helven0/devops_portfolio   Up 3 minutes","=== All containers (including stopped) ===","NAMES     IMAGE                      STATUS         CREATED AT","mysite    helven0/devops_portfolio   Up 3 minutes   2025-09-04 01:19:56 +0000 UTC","=== Dangling images ===","REPOSITORY                 IMAGE ID       CREATED","helven0/devops_portfolio   4c1445b09584   3 minutes ago","helven0/devops_portfolio   f2d4656e8eef   6 minutes ago","helven0/devops_portfolio   dab679273951   18 minutes ago","helven0/devops_portfolio   20008c77970f   24 minutes ago","helven0/devops_portfolio   0a7710c3d5b5   26 minutes ago","helven0/devops_portfolio   e95479799754   27 minutes ago","helven0/devops_portfolio   747621e98529   30 minutes ago","helven0/devops_portfolio   bcc09b53bc75   About an hour ago","helven0/devops_portfolio   0ab4a1d2c2be   About an hour ago","helven0/devops_portfolio   92a3733bb453   About an hour ago","helven0/devops_portfolio   b3b84305fa4d   About an hour ago","helven0/devops_portfolio   b6a37f90f36d   2 hours ago","helven0/devops_portfolio   6c281471592b   2 hours ago","helven0/devops_portfolio   2b4a3c4ab4b7   2 hours ago","helven0/devops_portfolio   e15f6311dd3d   2 hours ago","=== Largest images (top 10) ===","helven0/devops_portfolio:<none>\t6c281471592b\t196MB","helven0/devops_portfolio:<none>\t747621e98529\t196MB","helven0/devops_portfolio:<none>\t92a3733bb453\t196MB","helven0/devops_portfolio:<none>\tb3b84305fa4d\t196MB","helven0/devops_portfolio:<none>\tb6a37f90f36d\t196MB","helven0/devops_portfolio:<none>\tbcc09b53bc75\t196MB","helven0/devops_portfolio:<none>\tdab679273951\t196MB","helven0/devops_portfolio:<none>\te15f6311dd3d\t196MB","helven0/devops_portfolio:<none>\te95479799754\t196MB","helven0/devops_portfolio:<none>\tf2d4656e8eef\t196MB","Summary:","Running containers: 1","Stopped containers: 0","Dangling images: 15"],
+    "all_containers": [],
+    "dangling_images": ["REPOSITORY                 IMAGE ID       CREATED","helven0/devops_portfolio   4c1445b09584   3 minutes ago","helven0/devops_portfolio   f2d4656e8eef   6 minutes ago","helven0/devops_portfolio   dab679273951   18 minutes ago","helven0/devops_portfolio   20008c77970f   24 minutes ago","helven0/devops_portfolio   0a7710c3d5b5   26 minutes ago","helven0/devops_portfolio   e95479799754   27 minutes ago","helven0/devops_portfolio   747621e98529   30 minutes ago","helven0/devops_portfolio   bcc09b53bc75   About an hour ago","helven0/devops_portfolio   0ab4a1d2c2be   About an hour ago","helven0/devops_portfolio   92a3733bb453   About an hour ago","helven0/devops_portfolio   b3b84305fa4d   About an hour ago","helven0/devops_portfolio   b6a37f90f36d   2 hours ago","helven0/devops_portfolio   6c281471592b   2 hours ago","helven0/devops_portfolio   2b4a3c4ab4b7   2 hours ago","helven0/devops_portfolio   e15f6311dd3d   2 hours ago","=== Largest images (top 10) ===","helven0/devops_portfolio:<none>\t6c281471592b\t196MB","helven0/devops_portfolio:<none>\t747621e98529\t196MB","helven0/devops_portfolio:<none>\t92a3733bb453\t196MB","helven0/devops_portfolio:<none>\tb3b84305fa4d\t196MB","helven0/devops_portfolio:<none>\tb6a37f90f36d\t196MB","helven0/devops_portfolio:<none>\tbcc09b53bc75\t196MB","helven0/devops_portfolio:<none>\tdab679273951\t196MB","helven0/devops_portfolio:<none>\te15f6311dd3d\t196MB","helven0/devops_portfolio:<none>\te95479799754\t196MB","helven0/devops_portfolio:<none>\tf2d4656e8eef\t196MB","Summary:","Running containers: 1","Stopped containers: 0","Dangling images: 15"],
+    "largest_images": []
   },
   "recent_changes": {
     "commits": [
-      {
-        "hash": "abc123d",
-        "message": "Fix container health probe",
-        "author": "Alice"
-      },
-      {
-        "hash": "789ef45",
-        "message": "Add audit log rotation",
-        "author": "Bob"
-      },
-      {
-        "hash": "456def7",
-        "message": "Update workflow for health sweep",
-        "author": "Charlie"
-      }
+      {"hash":"5c40ddf","message":"Update last_good digest to sha256:4de81146b9ee2f6eda19b77c1b530d597433f95e23f730bd9a025b99159ff963","author":"github-actions[bot]"},
+{"hash":"c1175a9","message":"Fixing the relases_notes.sh","author":"Suraj Rauniyar"},
+{"hash":"2ed09ff","message":"Update last_good digest to sha256:c93a3bb88d35aef0040d8e8bc77e226d0392b84fe8aa6ef59a3529e3933b2111","author":"github-actions[bot]"},
+{"hash":"215e060","message":"Updating the release_notes.sh to make it look better","author":"Suraj Rauniyar"},
+{"hash":"f25f24d","message":"Update last_good digest to sha256:018bf25313fd03db8a21708e9e975e725de45c5732522e31bf31c8b956788f02","author":"github-actions[bot]"}
     ]
   },
   "server": {
-    "host": "prod-server-01",
-    "os": "Ubuntu 22.04 LTS",
-    "docker_version": "24.0.2"
+    "host": "ip-10-0-0-32",
+    "os": "Ubuntu 24.04.3 LTS",
+    "docker_version": "Docker version 27.5.1, build 27.5.1-0ubuntu3~24.04.2"
   }
 }
