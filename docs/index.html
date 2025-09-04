@@ -1,90 +1,302 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>DeployGuard Dashboard</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>DeployGuard — Dashboard</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
-    h1 { color: #333; }
-    .card {
-      background: #fff; padding: 15px; margin-bottom: 20px;
-      border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    :root{
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --muted: #6b7280;
+      --accent: #0b5fff;
+      --ok: #107b1a;
+      --warn: #b9770e;
+      --fail: #b91c1c;
+      --shadow: 0 6px 18px rgba(12,18,30,0.06);
+      --radius: 12px;
+      --maxw: 1080px;
     }
-    .section-title { font-size: 1.2em; margin-bottom: 8px; color: #444; }
-    code { background: #eee; padding: 2px 4px; border-radius: 4px; }
-    ul { padding-left: 20px; }
-    .small { color: #666; font-size: 0.9em; }
+    html,body{height:100%;}
+    body{
+      margin:0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      background:var(--bg);
+      color:#0f172a;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+      padding:28px;
+      box-sizing:border-box;
+    }
+    .wrap{max-width:var(--maxw);margin:0 auto;}
+    header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px;}
+    h1{font-size:20px;margin:0;}
+    .sub{color:var(--muted);font-size:13px;}
+    .grid{display:grid;grid-template-columns:1fr 360px;gap:14px;align-items:start}
+    .card{background:var(--card);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow);}
+    .small{font-size:13px;color:var(--muted);}
+    .muted{color:var(--muted)}
+    .kbd{font-family:monospace;background:#f2f4f8;padding:2px 6px;border-radius:6px;font-size:13px}
+    .label{font-size:13px;color:var(--muted);margin-bottom:6px}
+    .pill{display:inline-block;padding:6px 10px;border-radius:999px;font-weight:700;font-size:13px}
+    .ok{background:#ecfdf3;color:var(--ok)}
+    .fail{background:#fff1f2;color:var(--fail)}
+    .warn{background:#fffbeb;color:var(--warn)}
+    pre{background:#0f172a08;padding:12px;border-radius:8px;overflow:auto;white-space:pre-wrap}
+    ul{margin:0;padding-left:18px}
+    .meta-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    footer{margin-top:18px;text-align:center;color:var(--muted);font-size:13px}
+    @media (max-width:900px){
+      .grid{grid-template-columns:1fr; }
+    }
   </style>
 </head>
 <body>
-  <h1>DeployGuard Dashboard</h1>
-  <div id="content">Loading...</div>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>DeployGuard Dashboard</h1>
+        <div class="sub">Live status, audit and recent changes for your portfolio</div>
+      </div>
+      <div class="sub">Repository: <span id="repo-name" class="kbd">unknown</span></div>
+    </header>
+
+    <div id="error" class="card" style="display:none;">
+      <strong>Error loading health.json</strong>
+      <div id="error-details" class="small muted" style="margin-top:6px"></div>
+      <pre id="error-raw" style="margin-top:10px"></pre>
+    </div>
+
+    <div id="main" style="display:none;">
+      <div class="grid">
+        <!-- Left column -->
+        <div>
+          <div class="card" id="deploy-card" aria-live="polite">
+            <div class="label">Deployment</div>
+            <div class="meta-row" style="justify-content:space-between;align-items:flex-start;">
+              <div>
+                <div style="font-weight:700" id="lastupdate">—</div>
+                <div class="small" id="deployed-by">—</div>
+              </div>
+              <div style="text-align:right">
+                <div class="small">Digest</div>
+                <div class="kbd" id="digest">—</div>
+                <div style="height:8px"></div>
+                <div class="small">Commit</div>
+                <div class="small" id="commit">—</div>
+              </div>
+            </div>
+            <div style="margin-top:12px" id="deploy-extra"></div>
+          </div>
+
+          <div class="card" style="margin-top:12px" id="verify-card">
+            <div class="label">Verification & Source</div>
+            <div style="display:flex;gap:12px;align-items:center">
+              <div id="verify-pill" class="pill">unknown</div>
+              <div class="small" id="verify-lastchecked">last checked: —</div>
+            </div>
+            <div style="margin-top:10px" class="small muted">Update source: <span id="update-source">—</span></div>
+          </div>
+
+          <div class="card" style="margin-top:12px" id="audit-card">
+            <div class="label">Audit (short)</div>
+            <div style="display:flex;gap:12px;align-items:center">
+              <div class="pill ok" id="count-running">Running: —</div>
+              <div class="pill" id="count-stopped">Stopped: —</div>
+              <div class="pill" id="count-dangling">Dangling: —</div>
+            </div>
+
+            <div style="margin-top:12px">
+              <div class="small label">Largest images</div>
+              <ul id="largest-list"><li class="small muted">—</li></ul>
+            </div>
+
+            <div style="margin-top:12px">
+              <div class="small label">Containers (running)</div>
+              <ul id="running-list"><li class="small muted">—</li></ul>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:12px" id="changes-card">
+            <div class="label">Recent changes</div>
+            <ul id="commits-list"><li class="small muted">—</li></ul>
+          </div>
+        </div>
+
+        <!-- Right column -->
+        <aside>
+          <div class="card">
+            <div class="label">Server</div>
+            <div><strong id="server-host">—</strong></div>
+            <div class="small" id="server-os">OS: —</div>
+            <div class="small" id="server-docker">Docker: —</div>
+          </div>
+
+          <div class="card" style="margin-top:12px">
+            <div class="label">Quick actions</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <a id="open-repo" class="small" href="#" target="_blank" rel="noopener">Open repository</a>
+              <a id="open-health" class="small" href="./health.json" target="_blank" rel="noopener">Open raw health.json</a>
+              <a id="open-audit-artifact" class="small" href="#" target="_blank" rel="noopener" style="display:none">Open latest audit artifact</a>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:12px">
+            <div class="label">Raw data</div>
+            <pre id="raw">loading…</pre>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <footer>
+      <div class="small muted">Hosted on GitHub Pages • Only summary data shown • Last updated will reflect the sweep or deploy that produced health.json</div>
+    </footer>
+  </div>
 
   <script>
-    async function loadHealth() {
+    const REPO = document.getElementById('repo-name');
+    const RAW = document.getElementById('raw');
+    const ERR = document.getElementById('error');
+    const ERR_DETAILS = document.getElementById('error-details');
+    const ERR_RAW = document.getElementById('error-raw');
+    const MAIN = document.getElementById('main');
+
+    async function fetchHealth() {
       try {
-        const res = await fetch('health.json?_=' + Date.now());
-        const data = await res.json();
+        // cache-bust during development
+        const resp = await fetch('./health.json?_=' + Date.now(), {cache:'no-store'});
+        if (!resp.ok) throw new Error('HTTP ' + resp.status + ' ' + resp.statusText);
+        const j = await resp.json();
 
-        let html = "";
+        // basic metadata
+        REPO.textContent = (j.repo || j.repository || '').toString() || document.location.pathname.split('/')[1] || 'unknown';
+        RAW.textContent = JSON.stringify(j, null, 2);
 
-        // Deploy info
-        html += `<div class="card">
-          <div class="section-title">Deployment</div>
-          <p><b>Timestamp:</b> ${data.timestamp}</p>
-          <p><b>Digest:</b> <code>${data.deployed.digest}</code></p>
-          <p><b>Commit:</b> <code>${data.deployed.commit}</code> (${data.deployed.author || 'unknown'})</p>
-        </div>`;
+        // deployed
+        const ts = j.timestamp || '—';
+        document.getElementById('lastupdate').textContent = ts;
+        const digest = (j.deployed && j.deployed.digest) ? j.deployed.digest : (j.deployed_digest || '—');
+        document.getElementById('digest').textContent = digest;
+        const commit = (j.deployed && j.deployed.commit) ? j.deployed.commit : (j.deployed_commit || '—');
+        document.getElementById('commit').textContent = commit;
+        document.getElementById('deployed-by').textContent = (j.deployed && j.deployed.author) ? 'Deployed by: ' + j.deployed.author : '';
 
-        // Verification
-        html += `<div class="card">
-          <div class="section-title">Verification</div>
-          <p>Status: ${data.verification.status}</p>
-          <p class="small">Last checked: ${data.verification.last_checked || 'never'}</p>
-        </div>`;
+        // verification
+        const ver = j.verification || {};
+        const vstatus = (ver.status || 'not configured').toString();
+        const voutcome = ver.outcome || '';
+        const last_checked = ver.last_checked || ver.checked_at || '—';
+        const pill = document.getElementById('verify-pill');
+        pill.textContent = vstatus;
+        if (vstatus.toLowerCase().includes('ok') || vstatus.toLowerCase().includes('pass')) {
+          pill.className = 'pill ok';
+        } else if (vstatus.toLowerCase().includes('fail') || vstatus.toLowerCase().includes('error')) {
+          pill.className = 'pill fail';
+        } else {
+          pill.className = 'pill warn';
+        }
+        document.getElementById('verify-lastchecked').textContent = 'last checked: ' + last_checked;
+        document.getElementById('update-source').textContent = voutcome || (j.verification && j.verification.outcome) || (j.source || 'sweep/deploy');
 
-        // Audit summary
-        if (data.audit) {
-          html += `<div class="card">
-            <div class="section-title">Audit</div>
-            <p>Running: ${data.audit.running_containers}, 
-               Stopped: ${data.audit.stopped_containers}, 
-               Dangling: ${data.audit.dangling_images}</p>
-            <p><b>Largest images:</b></p>
-            <ul>${(data.audit.largest_images||[]).map(i => 
-              `<li>${i.repository} (${i.size})</li>`).join("")}</ul>
-            <p><b>Containers:</b></p>
-            <ul>${(data.audit.containers||[]).map(c => 
-              `<li>${c.name} — ${c.image} (${c.status}, ${c.ports||'no ports'})</li>`).join("")}</ul>
-          </div>`;
+        // audit counts
+        const counts = (j.audit && j.audit.counts) || {};
+        const runningCount = counts.running ?? (Array.isArray(j.audit && j.audit.running_containers) ? j.audit.running_containers.length : 0);
+        const stoppedCount = counts.stopped ?? 0;
+        const danglingCount = counts.dangling ?? (Array.isArray(j.audit && j.audit.dangling_images) ? j.audit.dangling_images.length : 0);
+
+        document.getElementById('count-running').textContent = 'Running: ' + runningCount;
+        document.getElementById('count-stopped').textContent = 'Stopped: ' + stoppedCount;
+        document.getElementById('count-dangling').textContent = 'Dangling: ' + danglingCount;
+
+        // largest images
+        const largest = (j.audit && j.audit.largest_images) || j.audit && j.audit.largest || [];
+        const largestList = document.getElementById('largest-list');
+        largestList.innerHTML = '';
+        if (Array.isArray(largest) && largest.length) {
+          largest.slice(0,6).forEach(it => {
+            const repo = it.repository || it.split && it.split('\t')[0] || JSON.stringify(it);
+            const size = it.size || '';
+            const li = document.createElement('li');
+            li.className = 'small';
+            li.innerHTML = `<strong>${repo}</strong> ${size ? ' — ' + size : ''}`;
+            largestList.appendChild(li);
+          });
+        } else {
+          largestList.innerHTML = '<li class="small muted">No images listed</li>';
         }
 
-        // Recent changes
-        if (data.recent_changes && data.recent_changes.commits) {
-          html += `<div class="card">
-            <div class="section-title">Recent Changes</div>
-            <ul>${data.recent_changes.commits.map(c => 
-              `<li><code>${c.hash}</code> ${c.message} (${c.author})</li>`).join("")}</ul>
-          </div>`;
+        // running containers
+        const runningArr = (j.audit && j.audit.running_containers) || [];
+        const runningList = document.getElementById('running-list');
+        runningList.innerHTML = '';
+        if (Array.isArray(runningArr) && runningArr.length) {
+          runningArr.forEach(line => {
+            const li = document.createElement('li');
+            li.className = 'small';
+            li.textContent = line;
+            runningList.appendChild(li);
+          });
+        } else {
+          runningList.innerHTML = '<li class="small muted">No running containers</li>';
         }
 
-        // Server info
-        if (data.server) {
-          html += `<div class="card">
-            <div class="section-title">Server Info</div>
-            <p>Host: ${data.server.host}</p>
-            <p>OS: ${data.server.os}</p>
-            <p>Docker: ${data.server.docker_version}</p>
-          </div>`;
+        // recent commits
+        const commits = (j.recent_changes && j.recent_changes.commits) || (j.recent_changes || {}).commits || [];
+        const commitsList = document.getElementById('commits-list');
+        commitsList.innerHTML = '';
+        if (Array.isArray(commits) && commits.length) {
+          commits.slice(0,8).forEach(c => {
+            const li = document.createElement('li');
+            li.className = 'small';
+            const hash = c.hash || c.sha || (c.commit && c.commit.id) || '';
+            const msg = c.message || c.title || '';
+            const author = c.author || (c.commit && c.commit.author && c.commit.author.name) || '';
+            li.innerHTML = `<code>${hash}</code> ${escapeHtml(msg)} <span class="muted">(${escapeHtml(author)})</span>`;
+            commitsList.appendChild(li);
+          });
+        } else {
+          commitsList.innerHTML = '<li class="small muted">No recent commits recorded</li>';
         }
 
-        document.getElementById("content").innerHTML = html;
-      } catch (e) {
-        document.getElementById("content").innerHTML = 
-          "<div class='card'><b>Error loading health.json</b></div>";
+        // server
+        const server = j.server || {};
+        document.getElementById('server-host').textContent = server.host || '—';
+        document.getElementById('server-os').textContent = 'OS: ' + (server.os || '—');
+        document.getElementById('server-docker').textContent = 'Docker: ' + (server.docker_version || '—');
+
+        // links
+        const repoLink = (j.repository && (typeof j.repository === 'string' ? j.repository : j.repository.full_name)) || (j.repo || '');
+        if (repoLink) {
+          const r = document.getElementById('open-repo');
+          r.href = `https://github.com/${repoLink}`;
+          r.style.display = 'inline';
+          document.getElementById('repo-name').textContent = repoLink;
+        } else {
+          document.getElementById('open-repo').style.display = 'none';
+        }
+
+        // show raw and main
+        ERR.style.display = 'none';
+        MAIN.style.display = 'block';
+      } catch (err) {
+        console.error(err);
+        ERR.style.display = 'block';
+        ERR_DETAILS.textContent = err.message || String(err);
+        try { ERR_RAW.textContent = await (await fetch('./health.json?_=' + Date.now())).text(); } catch(e) { ERR_RAW.textContent = 'Could not fetch raw health.json'; }
+        MAIN.style.display = 'none';
       }
     }
-    loadHealth();
+
+    // small helper to escape HTML in commit messages
+    function escapeHtml(s){
+      if(!s) return '';
+      return s.replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); });
+    }
+
+    fetchHealth();
+    // optional: refresh every 5 minutes
+    setInterval(fetchHealth, 5*60*1000);
   </script>
 </body>
 </html>
