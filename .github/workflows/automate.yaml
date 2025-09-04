@@ -123,21 +123,7 @@ jobs:
           else
             echo "Deploy outcome is ${DEPLOY_OUTCOME}; no update or rollback performed."
           fi
-
-      - name: Build docs/health.json and push (dashboard)
-        env:
-          DIGEST: ${{ steps.capture.outputs.DIGEST }}
-          DEPLOY_OUTCOME: ${{ steps.deploy_step.outcome }}
-        run: |
-          TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          if [ "${DEPLOY_OUTCOME}" = "success" ]; then VERIFY="OK"; else VERIFY="FAIL"; fi
-          AUDIT_SUM=$(head -n 20 docker_audit_output.txt | tr '\n' ' ' | tr -s ' ')
-          printf '{"timestamp":"%s","digest":"%s","verify_summary":"%s","audit_summary":"%s"}\n' \
-            "${TIMESTAMP}" "${DIGEST}" "${VERIFY}" "${AUDIT_SUM}" > docs/health.json
-          git add docs/health.json || true
-          git commit -m "Update health.json at ${TIMESTAMP}" || echo "no changes to commit"
-          git push || echo "push failed (branch protections?)"
-
+          
       - name: Send release notes (PR-level) to Teams or logs
         env:
           TEAMS_WEBHOOK: ${{ secrets.TEAMS_WEBHOOK }}
