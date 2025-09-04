@@ -1,1 +1,53 @@
-{"timestamp":"2025-09-04T00:23:16Z","digest":"sha256:48d788505f1f06608cb165e8334f51678a4434b5ff6d1cf11977f250dd508a7d","verify_summary":"OK","audit_summary":""}
+{
+  "timestamp": "2025-09-04T12:15:00Z",
+  "repository": "your-username/your-repo",
+  "deployed": {
+    "digest": "sha256:386c2b81de019bd53d154834cf83356f107113677c6b6459fb64ef5c0ffd44db",
+    "commit": "abc123def456",
+    "author": "deploy-bot"
+  },
+  "verification": {
+    "status": "ok",
+    "outcome": "sweep",
+    "last_checked": "2025-09-04T12:16:00Z"
+  },
+  "audit": {
+    "counts": {
+      "running": 1,
+      "stopped": 0,
+      "dangling": 0
+    },
+    "running_containers": [
+      "webapp_container (id: 9c8a7b6d5e4f) uptime: 2h"
+    ],
+    "dangling_images": [],
+    "largest_images": [
+      { "repository": "your-username/webapp:latest", "size": "245MB" },
+      { "repository": "postgres:15", "size": "120MB" }
+    ]
+  },
+  "recent_changes": {
+    "commits": [
+      {
+        "hash": "abc123d",
+        "message": "Fix container health probe",
+        "author": "Alice"
+      },
+      {
+        "hash": "789ef45",
+        "message": "Add audit log rotation",
+        "author": "Bob"
+      },
+      {
+        "hash": "456def7",
+        "message": "Update workflow for health sweep",
+        "author": "Charlie"
+      }
+    ]
+  },
+  "server": {
+    "host": "prod-server-01",
+    "os": "Ubuntu 22.04 LTS",
+    "docker_version": "24.0.2"
+  }
+}
