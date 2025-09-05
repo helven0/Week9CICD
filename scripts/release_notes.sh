@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# release_notes.sh (broken-pipe fixed; safe preview)
-# - collects merged PRs and recent commits
-# - sends an Adaptive Card to Teams (with text fallback)
-# - avoids broken-pipe when previewing output in CI by using here-strings
+# release_notes.sh — fixed: no printf->head broken-pipe
+# - posts an Adaptive Card to Teams (fallback to text)
+# - safe preview in CI (no EPIPE failures)
+# - minimal external deps: curl, jq, python3, git
 
 export LANG=C
 export LC_ALL=C
@@ -14,7 +14,7 @@ GHTOKEN="${GITHUB_TOKEN:-}"
 REPO="${GITHUB_REPOSITORY:-}"   # owner/repo
 SHA="${GITHUB_SHA:-}"           # full SHA (kept internal; we display short)
 
-# Display limits (adjust to taste)
+# Display limits
 PR_LIMIT=5
 COMMIT_LIMIT=5
 
@@ -23,15 +23,24 @@ if [ -z "$REPO" ]; then
   exit 2
 fi
 
-# sanitize helper: replace common weird zeros and remove non-printable chars
+# sanitize helper using awk (avoids piping printf -> tr which may in some environments raise EPIPE)
 sanitize() {
-  # use printf only to build the string (no pipe to a short-lived reader)
-  local s
-  s="$(printf '%s' "$1")"
-  s="$(printf '%s' "$s" | tr 'Øø𝟘' '000' | tr -cd '[:print:]\n' | tr -s ' ')"
-  printf '%s' "$s"
+  awk -v s="$1" 'BEGIN {
+    gsub(/\xEF\xBF\xBD/,"",s);          # drop replacement char if present
+    gsub(/Ø|ø|𝟘/,"0",s);               # normalize odd zeros
+    # remove non-printables except newline
+    out = "";
+    for (i=1;i<=length(s);i++) {
+      c = substr(s,i,1);
+      if (c ~ /[[:print:]]/ || c == "\n") out = out c
+    }
+    # squeeze spaces
+    gsub(/  +/," ",out);
+    print out;
+  }'
 }
 
+# sanitize repo
 REPO="$(sanitize "$REPO")"
 OWNER=$(printf '%s\n' "$REPO" | cut -d/ -f1)
 REPO_NAME=$(printf '%s\n' "$REPO" | cut -d/ -f2)
@@ -45,16 +54,21 @@ else
   if date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ >/dev/null 2>&1; then
     SINCE_DATE=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
   else
-    # macOS/BSD fallback
+    # macOS/BSD date fallback
     SINCE_DATE=$(date -u -v -7d +%Y-%m-%dT%H:%M:%SZ)
   fi
   COMPARE_URL="https://github.com/${REPO}/commits"
 fi
 
-# sanitize SINCE_DATE: remove odd chars leaving only digits, T, :, -, +, Z
-SINCE_DATE=$(printf '%s' "$SINCE_DATE" | tr 'Øø𝟘' '000' | awk '{ gsub(/[^0-9T:+\-Z]/,""); print }')
+# sanitize SINCE_DATE: keep digits, T, :, -, +, Z
+SINCE_DATE=$(printf '%s' "$SINCE_DATE" | awk '{ gsub(/[^0-9T:+\-Z]/,""); print }')
 
-SHORT_SHA="$(printf '%.7s' "$SHA" 2>/dev/null || echo "(hidden)")"
+SHORT_SHA="${SHA:-}"
+if [ -z "$SHORT_SHA" ]; then
+  SHORT_SHA="(hidden)"
+else
+  SHORT_SHA="${SHORT_SHA:0:7}"
+fi
 
 echo "Collecting merged PRs and commits since: $SINCE_DATE"
 echo "Repository: $REPO  (owner=${OWNER}, repo=${REPO_NAME})"
@@ -67,9 +81,10 @@ else
   PR_JSON=$(curl -sS -H "Accept: application/vnd.github+json" "$PR_API")
 fi
 
-PR_ITEMS=$(printf '%s' "$PR_JSON" | python3 - <<'PY'
+# Parse PR items with python3 (robust)
+PR_ITEMS=$(python3 - <<'PY' "$(printf '%s' "$PR_JSON")"
 import sys, json
-s = sys.stdin.read()
+s = sys.argv[1]
 try:
     j = json.loads(s) if s.strip() else {}
 except Exception:
@@ -87,17 +102,16 @@ print(json.dumps(out))
 PY
 )
 
-# --- Get commits since SINCE_DATE via git, pipe safely to python ---
+# --- Get commits since SINCE_DATE via git, parse with python3 ---
 GIT_RAW=$(git --no-pager log --no-merges --since="$SINCE_DATE" --pretty=format:'%H%x1f%h%x1f%an%x1f%cI%x1f%s%x1e' 2>/dev/null || true)
 
-COMMITS_JSON=$(printf '%s' "$GIT_RAW" | python3 - <<'PY'
+COMMITS_JSON=$(python3 - <<'PY' "$GIT_RAW"
 import sys, json
-data = sys.stdin.buffer.read()
-if not data:
+txt = sys.argv[1] if len(sys.argv) > 1 else ""
+if not txt:
     print("[]"); sys.exit(0)
-text = data.decode('utf-8', errors='replace')
-out = []
-for entry in text.split('\x1e'):
+out=[]
+for entry in txt.split('\x1e'):
     if not entry.strip():
         continue
     parts = entry.split('\x1f')
@@ -109,16 +123,16 @@ print(json.dumps(out))
 PY
 )
 
-# counts and trimmed displays
-PR_COUNT=$(echo "$PR_ITEMS" | jq 'length' 2>/dev/null || echo 0)
-COMMIT_COUNT=$(echo "$COMMITS_JSON" | jq 'length' 2>/dev/null || echo 0)
+# counts
+PR_COUNT=$(printf '%s' "$PR_ITEMS" | jq 'length' 2>/dev/null || echo 0)
+COMMIT_COUNT=$(printf '%s' "$COMMITS_JSON" | jq 'length' 2>/dev/null || echo 0)
 
-PR_DISPLAY=$(echo "$PR_ITEMS" | jq ".[:${PR_LIMIT}]")
-COMMITS_DISPLAY=$(echo "$COMMITS_JSON" | jq ".[:${COMMIT_LIMIT}]")
+PR_DISPLAY=$(printf '%s' "$PR_ITEMS" | jq ".[:${PR_LIMIT}]")
+COMMITS_DISPLAY=$(printf '%s' "$COMMITS_JSON" | jq ".[:${COMMIT_LIMIT}]")
 
-# Build fallback text blocks safely (no sed)
-PR_BLOCK=$(echo "$PR_DISPLAY" | jq -r '.[] | "- 🔀 #' + (.num|tostring) + " — " + (.title) + " — by " + .user + (if .merged_at then " (" + .merged_at + ")" else "" end) + (if .url then " — " + .url else "" end)' 2>/dev/null || echo "No merged PRs")
-COM_BLOCK=$(echo "$COMMITS_DISPLAY" | jq -r '.[] | "- ⎇ " + (.short) + " — " + (.msg) + " — " + .author + " (" + .date + ") — " + ("https://github.com/'"$REPO"'/commit/" + .sha)' 2>/dev/null || echo "No recent commits")
+# Build fallback text blocks
+PR_BLOCK=$(printf '%s' "$PR_DISPLAY" | jq -r '.[] | "- 🔀 #' + (.num|tostring) + " — " + (.title) + " — by " + .user + (if .merged_at then " (" + .merged_at + ")" else "" end) + (if .url then " — " + .url else "" end)' 2>/dev/null || echo "No merged PRs")
+COM_BLOCK=$(printf '%s' "$COMMITS_DISPLAY" | jq -r '.[] | "- ⎇ " + (.short) + " — " + (.msg) + " — " + .author + " (" + .date + ") — " + ("https://github.com/'"$REPO"'/commit/" + .sha)' 2>/dev/null || echo "No recent commits")
 
 FALLBACK_BODY=$(cat <<EOF
 🚀 Release: ${REPO}
@@ -136,11 +150,13 @@ EOF
 )
 
 # ---------- SAFE PREVIEW ----------
-# Use a here-string into head (no writer process that can get SIGPIPE)
-# This avoids broken pipe errors under set -euo pipefail.
+# Use here-string into head (no separate writer process that can get SIGPIPE)
+# Also temporarily disable pipefail to be extra-safe and avoid script failure if head exits early.
+set +o pipefail
 head -n 80 <<< "$FALLBACK_BODY" || true
+set -o pipefail
 
-# Build Adaptive Card with Python (structured TextBlocks)
+# Build Adaptive Card payload with python3 (structured TextBlocks)
 export PR_DISPLAY
 export COMMITS_DISPLAY
 export REPO
