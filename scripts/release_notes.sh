@@ -2,16 +2,19 @@
 set -euo pipefail
 
 # release_notes.sh
-# Detailed, visually-appealing release notes for Teams, with short SHAs only.
+# Show last 2-5 merged PRs and last 3-5 commits in a tidy Teams Adaptive Card,
+# hide full SHAs (show short 7-char SHAs), add emojis and separators.
+#
+# Usage: set TEAMS_WEBHOOK, GITHUB_REPOSITORY, optionally GITHUB_TOKEN and GITHUB_SHA in env
 
 WEBHOOK="${TEAMS_WEBHOOK:-}"
 GHTOKEN="${GITHUB_TOKEN:-}"
 REPO="${GITHUB_REPOSITORY:-}"   # owner/repo
-SHA="${GITHUB_SHA:-}"           # full SHA (kept internal); will only display short form
+SHA="${GITHUB_SHA:-}"           # full SHA (kept internal; we display short)
 
-# Config
-PR_LIMIT=12
-COMMIT_LIMIT=20
+# display limits
+PR_LIMIT=5       # show up to 2..5 PRs (set to 2-5)
+COMMIT_LIMIT=5   # show up to 3..5 commits (set to 3-5)
 
 if [ -z "$REPO" ]; then
   echo "GITHUB_REPOSITORY not set; exiting"
@@ -21,10 +24,7 @@ fi
 OWNER=$(echo "$REPO" | cut -d/ -f1)
 REPO_NAME=$(echo "$REPO" | cut -d/ -f2)
 
-echo "Release-notes runner: repo=${REPO}"
-echo "Webhook present: ${WEBHOOK:+yes}${WEBHOOK:+ (hidden)}"
-
-# Determine since date (last tag date or 7 days)
+# Determine SINCE_DATE (last tag or 7 days)
 LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
 if [ -n "$LAST_TAG" ]; then
   SINCE_DATE=$(git log -1 --format=%cI "$LAST_TAG")
@@ -40,7 +40,7 @@ fi
 
 echo "Collecting merged PRs and commits since: $SINCE_DATE"
 
-# Fetch merged PRs
+# Fetch merged PRs (GitHub Search API)
 PR_API="https://api.github.com/search/issues?q=repo:${OWNER}/${REPO_NAME}+is:pr+is:merged+merged:>${SINCE_DATE}&per_page=50"
 if [ -n "${GHTOKEN:-}" ]; then
   PR_JSON=$(curl -sS -H "Accept: application/vnd.github+json" -H "Authorization: token ${GHTOKEN}" "$PR_API")
@@ -48,33 +48,31 @@ else
   PR_JSON=$(curl -sS -H "Accept: application/vnd.github+json" "$PR_API")
 fi
 
-# Build PR_ITEMS JSON safely via python
+# Parse PR items and limit to PR_LIMIT (python handles edge cases)
 PR_ITEMS=$(echo "$PR_JSON" | python3 - <<'PY'
 import sys, json
-s = sys.stdin.read().strip()
+s=sys.stdin.read().strip()
 if not s:
-    print("[]")
-    sys.exit(0)
+    print("[]"); sys.exit(0)
 try:
-    j = json.loads(s)
+    j=json.loads(s)
 except Exception:
-    print("[]")
-    sys.exit(0)
-out = []
-for it in j.get("items", [])[:50]:
+    print("[]"); sys.exit(0)
+items=j.get("items",[])[:50]
+out=[]
+for it in items:
     out.append({
         "num": it.get("number"),
         "title": (it.get("title") or "").strip(),
         "user": (it.get("user") or {}).get("login","unknown"),
         "url": it.get("html_url",""),
-        "merged_at": it.get("closed_at") or it.get("updated_at") or ""
+        "merged_at": it.get("closed_at","")
     })
 print(json.dumps(out))
 PY
 )
 
-# Build commits JSON from local git since SINCE_DATE
-# Use a delimiter-safe format then parse with python
+# Gather recent commits since SINCE_DATE (local git)
 GIT_RAW=$(git --no-pager log --no-merges --since="$SINCE_DATE" --pretty=format:'%H%x1f%h%x1f%an%x1f%cI%x1f%s%x1e' || true)
 COMMITS_JSON=$(python3 - <<'PY'
 import sys, json
@@ -82,106 +80,92 @@ data = sys.stdin.buffer.read()
 if not data:
     print("[]"); sys.exit(0)
 text = data.decode('utf-8', errors='replace')
-items = []
+out=[]
 for entry in text.split('\x1e'):
-    if not entry.strip(): continue
+    if not entry.strip():
+        continue
     parts = entry.split('\x1f')
     if len(parts) < 5:
         continue
     full, short, author, date, msg = parts[:5]
-    items.append({"sha": full, "short": short, "author": author, "date": date, "msg": msg})
-print(json.dumps(items))
+    out.append({"sha": full, "short": short, "author": author, "date": date, "msg": msg})
+print(json.dumps(out))
 PY
 <<<"$GIT_RAW"
 )
 
-# Trim to configured limits for display
+# Build truncated display lists
 PR_COUNT=$(echo "$PR_ITEMS" | jq 'length' || echo 0)
 COMMIT_COUNT=$(echo "$COMMITS_JSON" | jq 'length' || echo 0)
 
-PR_DISPLAY=$(echo "$PR_ITEMS" | jq ".[:${PR_LIMIT}]" )
-COMMITS_DISPLAY=$(echo "$COMMITS_JSON" | jq ".[:${COMMIT_LIMIT}]" )
+PR_DISPLAY=$(echo "$PR_ITEMS" | jq ".[:${PR_LIMIT}]")
+COMMITS_DISPLAY=$(echo "$COMMITS_JSON" | jq ".[:${COMMIT_LIMIT}]")
 
-# Build fallback plain-text body (HEREDOC ensures real newlines)
-FALLBACK_BODY=$(cat <<'EOF'
-Release notes for: __REPO__
-Deployed: __DEPLOY__
-Since: __SINCE__
+# Build fallback plain-text body (real newlines)
+SHORT_SHA="$(printf '%.7s' "$SHA" 2>/dev/null || echo "(hidden)")"
 
-Merged PRs (showing __PR_SHOW__/__PR_COUNT__):
-__PR_BLOCK__
+# Build PR text lines for fallback
+PR_BLOCK=$(echo "$PR_DISPLAY" | jq -r '.[] | "- 🔀 #' + (.num|tostring) + " — " + (.title) + " — by " + .user + (if .merged_at then " (" + .merged_at + ")" else "" end) + (if .url then " — " + .url else "" end)' || echo "No merged PRs")
+# Build commit lines for fallback
+COM_BLOCK=$(echo "$COMMITS_DISPLAY" | jq -r '.[] | "- ⎇ " + (.short) + " — " + (.msg) + " — " + .author + " (" + .date + ") — " + ("https://github.com/'"$REPO"'/commit/" + .sha))' || echo "No recent commits")
 
-Recent commits (showing __COM_SHOW__/__COM_COUNT__):
-__COM_BLOCK__
+FALLBACK_BODY=$(cat <<EOF
+🚀 Release: ${REPO}
+🔒 Deployed: ${SHORT_SHA} (full SHA hidden)
+📆 Since: ${SINCE_DATE}
 
-View more: __COMPARE_URL__
+🧾 Merged PRs (showing ${PR_LIMIT}/${PR_COUNT}):
+${PR_BLOCK}
+
+⎇ Recent commits (showing ${COMMIT_LIMIT}/${COMMIT_COUNT}):
+${COM_BLOCK}
+
+🔗 View more: ${COMPARE_URL}
 EOF
 )
 
-# Build PR and commit text blocks for the fallback
-PR_BLOCK=$(echo "$PR_DISPLAY" | jq -r '.[] | ("- 🔀 #" + (.num|tostring) + " — " + (.title) + " — by " + .user + (if .merged_at then " (" + .merged_at + ")" else "" end) + (if .url then " — " + .url else "" end))' || echo "No merged PRs")
-COM_BLOCK=$(echo "$COMMITS_DISPLAY" | jq -r '.[] | ("- ⎇ " + (.short) + " — " + (.msg) + " — " + .author + " (" + .date + ") — " + ("https://github.com/'"$REPO"'/commit/" + .sha))' || echo "No recent commits")
+# Preview fallback (first 80 lines)
+printf '%s\n' "$FALLBACK_BODY" | sed -n '1,80p'
 
-# Fill the template
-FALLBACK_BODY="${FALLBACK_BODY//__REPO__/$REPO}"
-SHORT_SHA="$(printf '%.7s' "$SHA" 2>/dev/null || echo "(hidden)")"
-FALLBACK_BODY="${FALLBACK_BODY//__DEPLOY__/$SHORT_SHA}"
-FALLBACK_BODY="${FALLBACK_BODY//__SINCE__/$SINCE_DATE}"
-FALLBACK_BODY="${FALLBACK_BODY//__PR_BLOCK__/$PR_BLOCK}"
-FALLBACK_BODY="${FALLBACK_BODY//__PR_SHOW__/$PR_LIMIT}"
-FALLBACK_BODY="${FALLBACK_BODY//__PR_COUNT__/$PR_COUNT}"
-FALLBACK_BODY="${FALLBACK_BODY//__COM_BLOCK__/$COM_BLOCK}"
-FALLBACK_BODY="${FALLBACK_BODY//__COM_SHOW__/$COMMIT_LIMIT}"
-FALLBACK_BODY="${FALLBACK_BODY//__COM_COUNT__/$COMMIT_COUNT}"
-FALLBACK_BODY="${FALLBACK_BODY//__COMPARE_URL__/$COMPARE_URL}"
-
-# Preview fallback (first 300 chars)
-echo "Fallback preview:"
-printf '%s\n' "$FALLBACK_BODY" | sed -n '1,60p'
-
-# Build Adaptive Card using Python to avoid quoting issues.
-# Export the JSON blobs so python can read them from env.
+# Build Adaptive Card using Python (structured, no markdown)
 export PR_DISPLAY
 export COMMITS_DISPLAY
 export REPO
+export SHORT_SHA
 export SINCE_DATE
 export COMPARE_URL
-export SHORT_SHA
 
-CARD_JSON=$(python3 - "$REPO" "$SINCE_DATE" <<'PY'
-import os, json, sys
-
+CARD_JSON=$(python3 - "$REPO" "$SHORT_SHA" "$SINCE_DATE" <<'PY'
+import os, sys, json
 repo = sys.argv[1]
-since = sys.argv[2] or ""
+short_sha = sys.argv[2] or "(hidden)"
+since = sys.argv[3] or ""
 compare = os.environ.get("COMPARE_URL","")
-short_sha = os.environ.get("SHORT_SHA","(hidden)")
 
 prs = json.loads(os.environ.get("PR_DISPLAY","[]") or "[]")
 commits = json.loads(os.environ.get("COMMITS_DISPLAY","[]") or "[]")
 
-def short(s, n=160):
-    if not s:
-        return ""
+def shorttxt(s, n=180):
+    if not s: return ""
     s = s.replace("\n"," ").strip()
-    return s if len(s) <= n else s[:n-3].rstrip() + "..."
+    return s if len(s)<=n else s[:n-3].rstrip()+"..."
 
 body = []
 body.append({"type":"TextBlock","size":"Large","weight":"Bolder","text":"🚀 Release Notes","wrap":True})
 body.append({"type":"TextBlock","text":f"📦 Repository: {repo}","wrap":True,"spacing":"Small"})
-body.append({"type":"TextBlock","text":f"🔒 Deployed commit: {short_sha} (full SHA hidden)","wrap":True,"isSubtle":True,"spacing":"Small"})
+body.append({"type":"TextBlock","text":f"🔒 Deployed: {short_sha} (full SHA hidden)","wrap":True,"isSubtle":True,"spacing":"Small"})
 if since:
     body.append({"type":"TextBlock","text":f"📆 Since: {since}","wrap":True,"spacing":"Small","isSubtle":True})
 
-# Summary row with counts
-summary = f"🧾 Merged PRs: {len(prs)}"
-summary += f" • ⎇ Commits: {len(commits)}"
-body.append({"type":"TextBlock","text":summary,"wrap":True,"spacing":"Small","isSubtle":True, "separator": True})
+# summary row
+summary = f"🧾 PRs: {len(prs)}  •  ⎇ Commits: {len(commits)}"
+body.append({"type":"TextBlock","text":summary,"wrap":True,"spacing":"Small","isSubtle":True, "separator":True})
 
-# PR list (showing up to PR_LIMIT items)
+# PRs (2-5 items)
 if prs:
     body.append({"type":"TextBlock","text":"🔀 Merged pull requests:","weight":"Bolder","wrap":True,"spacing":"Medium"})
     for pr in prs:
-        title = short(pr.get("title","(no title)"), 220)
+        title = shorttxt(pr.get("title","(no title)"), 220)
         num = pr.get("num","?")
         user = pr.get("user","unknown")
         url = pr.get("url","")
@@ -190,12 +174,12 @@ if prs:
             line += f" — {url}"
         body.append({"type":"TextBlock","text":line,"wrap":True,"spacing":"Small"})
 
-# Commits list
+# commits (3-5 items)
 if commits:
     body.append({"type":"TextBlock","text":"⎇ Recent commits:","weight":"Bolder","wrap":True,"spacing":"Medium"})
     for c in commits:
-        shortc = c.get("short", "")[:7]
-        msg = short(c.get("msg",""), 200)
+        shortc = c.get("short","")[:7]
+        msg = shorttxt(c.get("msg",""), 200)
         author = c.get("author","")
         date = c.get("date","")
         sha_full = c.get("sha","")
@@ -203,25 +187,24 @@ if commits:
         line = f"• {shortc}  {msg} — {author} ({date}) — {commit_url}"
         body.append({"type":"TextBlock","text":line,"wrap":True,"spacing":"Small"})
 
-# If no content
-if not prs and not commits:
-    body.append({"type":"TextBlock","text":"No merged pull requests or recent commits found in this window.","wrap":True,"spacing":"Small"})
+# final actions
+actions = [
+    {"type":"Action.OpenUrl","title":"🔗 View repository","url": f"https://github.com/{repo}"},
+    {"type":"Action.OpenUrl","title":"🔎 View changes on GitHub","url": compare}
+]
 
 payload = {
     "$schema":"http://adaptivecards.io/schemas/adaptive-card.json",
     "type":"AdaptiveCard",
     "version":"1.3",
     "body": body,
-    "actions":[
-        {"type":"Action.OpenUrl","title":"🔗 View repository","url": f"https://github.com/{repo}"},
-        {"type":"Action.OpenUrl","title":"🔎 View changes on GitHub","url": compare}
-    ]
+    "actions": actions
 }
 print(json.dumps(payload))
 PY
 )
 
-# Post to Teams (Adaptive Card)
+# Post Adaptive Card
 TMP_RESP=$(mktemp)
 TMP_PLOAD=$(mktemp)
 echo "$CARD_JSON" > "$TMP_PLOAD"
