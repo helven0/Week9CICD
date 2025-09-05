@@ -1,22 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# release_notes.sh (fixed)
-# - avoids broken-pipe exits (no printf | sed pipelines)
-# - sanitizes odd characters (Ø/ø -> 0, strips other junk)
-# - shows last 2-5 PRs and last 3-5 commits, short SHAs only
-# - builds Adaptive Card, falls back to text
+# release_notes.sh (sed-safe)
+# - avoids sed bracket-range issues that produce "Invalid range end"
+# - uses awk/tr/head instead of sed where needed
+# - shows last N PRs and last M commits, short SHAs, Adaptive Card + fallback
 
-# Ensure ASCII-like behavior for utilities
 export LANG=C
 export LC_ALL=C
 
 WEBHOOK="${TEAMS_WEBHOOK:-}"
 GHTOKEN="${GITHUB_TOKEN:-}"
 REPO="${GITHUB_REPOSITORY:-}"   # owner/repo
-SHA="${GITHUB_SHA:-}"           # full SHA (internal; we display short)
+SHA="${GITHUB_SHA:-}"           # full SHA (kept internal; we display short)
 
-# display limits
+# Display limits (adjust to taste)
 PR_LIMIT=5
 COMMIT_LIMIT=5
 
@@ -25,17 +23,19 @@ if [ -z "$REPO" ]; then
   exit 2
 fi
 
-# sanitize repo name (replace slashed-zero & other weird characters)
+# sanitize helper: replace common weird zeros and remove non-printable chars
 sanitize() {
-  # replace common weird zero glyphs with 0, then remove control / non-printable chars
-  printf '%s' "$1" | tr 'Øø𝟘' '000' | tr -cd '[:print:]'
+  printf '%s' "$1" \
+    | tr 'Øø𝟘' '000' \
+    | tr -cd '[:print:]\n' \
+    | tr -s ' '
 }
 
 REPO="$(sanitize "$REPO")"
-OWNER=$(echo "$REPO" | cut -d/ -f1)
-REPO_NAME=$(echo "$REPO" | cut -d/ -f2)
+OWNER=$(printf '%s\n' "$REPO" | cut -d/ -f1)
+REPO_NAME=$(printf '%s\n' "$REPO" | cut -d/ -f2)
 
-# SINCE_DATE: last tag or 7 days ago. Force ASCII digits and sanitize.
+# Determine SINCE_DATE (last tag or 7 days ago)
 LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
 if [ -n "$LAST_TAG" ]; then
   SINCE_DATE=$(git log -1 --format=%cI "$LAST_TAG" 2>/dev/null || true)
@@ -49,16 +49,15 @@ else
   COMPARE_URL="https://github.com/${REPO}/commits"
 fi
 
-# sanitize SINCE_DATE: replace funny Ø/ø and drop any char not in allowed set (digits, T, :, -, +, Z)
-SINCE_DATE="$(printf '%s' "$SINCE_DATE" | tr 'Øø𝟘' '000' | sed 's/[^0-9T:\-+Z]//g')"
+# sanitize SINCE_DATE: remove odd chars leaving only digits, T, :, -, +, Z
+SINCE_DATE=$(printf '%s' "$SINCE_DATE" | tr 'Øø𝟘' '000' | awk '{ gsub(/[^0-9T:+\-Z]/,""); print }')
 
-# safe short sha for display
 SHORT_SHA="$(printf '%.7s' "$SHA" 2>/dev/null || echo "(hidden)")"
 
 echo "Collecting merged PRs and commits since: $SINCE_DATE"
 echo "Repository: $REPO  (owner=${OWNER}, repo=${REPO_NAME})"
 
-# --- Fetch merged PRs (GitHub API) ---
+# --- Fetch merged PRs from GitHub API ---
 PR_API="https://api.github.com/search/issues?q=repo:${OWNER}/${REPO_NAME}+is:pr+is:merged+merged:>${SINCE_DATE}&per_page=50"
 if [ -n "${GHTOKEN:-}" ]; then
   PR_JSON=$(curl -sS -H "Accept: application/vnd.github+json" -H "Authorization: token ${GHTOKEN}" "$PR_API")
@@ -66,7 +65,6 @@ else
   PR_JSON=$(curl -sS -H "Accept: application/vnd.github+json" "$PR_API")
 fi
 
-# parse PR items (python reads stdin safely)
 PR_ITEMS=$(printf '%s' "$PR_JSON" | python3 - <<'PY'
 import sys, json
 s = sys.stdin.read()
@@ -109,14 +107,14 @@ print(json.dumps(out))
 PY
 )
 
-# compute counts and display slices
+# counts and trimmed displays
 PR_COUNT=$(echo "$PR_ITEMS" | jq 'length' 2>/dev/null || echo 0)
 COMMIT_COUNT=$(echo "$COMMITS_JSON" | jq 'length' 2>/dev/null || echo 0)
 
 PR_DISPLAY=$(echo "$PR_ITEMS" | jq ".[:${PR_LIMIT}]")
 COMMITS_DISPLAY=$(echo "$COMMITS_JSON" | jq ".[:${COMMIT_LIMIT}]")
 
-# Build fallback plain-text blocks (avoid pipes that cause SIGPIPE)
+# Build fallback text blocks safely (no sed)
 PR_BLOCK=$(echo "$PR_DISPLAY" | jq -r '.[] | "- 🔀 #' + (.num|tostring) + " — " + (.title) + " — by " + .user + (if .merged_at then " (" + .merged_at + ")" else "" end) + (if .url then " — " + .url else "" end)' 2>/dev/null || echo "No merged PRs")
 COM_BLOCK=$(echo "$COMMITS_DISPLAY" | jq -r '.[] | "- ⎇ " + (.short) + " — " + (.msg) + " — " + .author + " (" + .date + ") — " + ("https://github.com/'"$REPO"'/commit/" + .sha)' 2>/dev/null || echo "No recent commits")
 
@@ -135,10 +133,10 @@ ${COM_BLOCK}
 EOF
 )
 
-# show preview using here-string to avoid pipe broken pipe
-sed -n '1,80p' <<< "$FALLBACK_BODY" || true
+# show preview without creating a fragile pipe
+printf '%s\n' "$FALLBACK_BODY" | head -n 80 || true
 
-# Build Adaptive Card safely (python)
+# Build Adaptive Card with Python (structured TextBlocks)
 export PR_DISPLAY
 export COMMITS_DISPLAY
 export REPO
@@ -212,7 +210,7 @@ print(json.dumps(payload))
 PY
 )
 
-# send the card
+# Post Adaptive Card
 TMP_RESP=$(mktemp)
 TMP_PLOAD=$(mktemp)
 echo "$CARD_JSON" > "$TMP_PLOAD"
@@ -232,7 +230,7 @@ echo "Teams response preview:"
 head -c 400 "$TMP_RESP" || true
 echo
 
-BODY_TEXT=$(tr -d '\r' < "$TMP_RESP" | tr -s '\n' ' ' | sed 's/"/\\"/g' || true)
+BODY_TEXT=$(tr -d '\r' < "$TMP_RESP" | tr -s '\n' ' ' || true)
 
 NEED_FALLBACK=0
 if [ "$HTTP_CODE" != "200" ]; then NEED_FALLBACK=1; fi
