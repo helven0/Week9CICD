@@ -1,36 +1,46 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# release_notes.sh
-# Send visually-appealing release notes to Teams.
-# Fixes: no broken heredoc/here-string, avoids non-ascii digits issues.
-# Shows last 2-5 merged PRs and last 3-5 commits (short SHAs only).
+# release_notes.sh (fixed)
+# - avoids broken-pipe exits (no printf | sed pipelines)
+# - sanitizes odd characters (Ø/ø -> 0, strips other junk)
+# - shows last 2-5 PRs and last 3-5 commits, short SHAs only
+# - builds Adaptive Card, falls back to text
+
+# Ensure ASCII-like behavior for utilities
+export LANG=C
+export LC_ALL=C
 
 WEBHOOK="${TEAMS_WEBHOOK:-}"
 GHTOKEN="${GITHUB_TOKEN:-}"
 REPO="${GITHUB_REPOSITORY:-}"   # owner/repo
-SHA="${GITHUB_SHA:-}"           # full SHA (kept internal; we display short)
+SHA="${GITHUB_SHA:-}"           # full SHA (internal; we display short)
 
-# display limits (adjust as you like)
-PR_LIMIT=5       # show up to 2..5 PRs
-COMMIT_LIMIT=5   # show up to 3..5 commits
+# display limits
+PR_LIMIT=5
+COMMIT_LIMIT=5
 
-# Basic validations
 if [ -z "$REPO" ]; then
   echo "GITHUB_REPOSITORY not set; exiting"
   exit 2
 fi
 
+# sanitize repo name (replace slashed-zero & other weird characters)
+sanitize() {
+  # replace common weird zero glyphs with 0, then remove control / non-printable chars
+  printf '%s' "$1" | tr 'Øø𝟘' '000' | tr -cd '[:print:]'
+}
+
+REPO="$(sanitize "$REPO")"
 OWNER=$(echo "$REPO" | cut -d/ -f1)
 REPO_NAME=$(echo "$REPO" | cut -d/ -f2)
 
-# Determine SINCE_DATE (last tag date or 7 days ago)
+# SINCE_DATE: last tag or 7 days ago. Force ASCII digits and sanitize.
 LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
 if [ -n "$LAST_TAG" ]; then
-  SINCE_DATE=$(git log -1 --format=%cI "$LAST_TAG")
+  SINCE_DATE=$(git log -1 --format=%cI "$LAST_TAG" 2>/dev/null || true)
   COMPARE_URL="https://github.com/${REPO}/compare/${LAST_TAG}...HEAD"
 else
-  # Try GNU date then BSD (mac) date; produce ASCII digits
   if date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ >/dev/null 2>&1; then
     SINCE_DATE=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
   else
@@ -39,14 +49,16 @@ else
   COMPARE_URL="https://github.com/${REPO}/commits"
 fi
 
-# Short SHA for display (first 7 chars) - do not show full SHA
+# sanitize SINCE_DATE: replace funny Ø/ø and drop any char not in allowed set (digits, T, :, -, +, Z)
+SINCE_DATE="$(printf '%s' "$SINCE_DATE" | tr 'Øø𝟘' '000' | sed 's/[^0-9T:\-+Z]//g')"
+
+# safe short sha for display
 SHORT_SHA="$(printf '%.7s' "$SHA" 2>/dev/null || echo "(hidden)")"
 
 echo "Collecting merged PRs and commits since: $SINCE_DATE"
-echo "Repository: $REPO"
-echo "Display PR_LIMIT=$PR_LIMIT  COMMIT_LIMIT=$COMMIT_LIMIT"
+echo "Repository: $REPO  (owner=${OWNER}, repo=${REPO_NAME})"
 
-# --- Fetch merged PRs (GitHub Search API) ---
+# --- Fetch merged PRs (GitHub API) ---
 PR_API="https://api.github.com/search/issues?q=repo:${OWNER}/${REPO_NAME}+is:pr+is:merged+merged:>${SINCE_DATE}&per_page=50"
 if [ -n "${GHTOKEN:-}" ]; then
   PR_JSON=$(curl -sS -H "Accept: application/vnd.github+json" -H "Authorization: token ${GHTOKEN}" "$PR_API")
@@ -54,7 +66,7 @@ else
   PR_JSON=$(curl -sS -H "Accept: application/vnd.github+json" "$PR_API")
 fi
 
-# Parse PR items safely using python reading from stdin (no broken heredoc)
+# parse PR items (python reads stdin safely)
 PR_ITEMS=$(printf '%s' "$PR_JSON" | python3 - <<'PY'
 import sys, json
 s = sys.stdin.read()
@@ -75,8 +87,8 @@ print(json.dumps(out))
 PY
 )
 
-# --- Collect commits since SINCE_DATE via git, pipe into python (safe) ---
-GIT_RAW=$(git --no-pager log --no-merges --since="$SINCE_DATE" --pretty=format:'%H%x1f%h%x1f%an%x1f%cI%x1f%s%x1e' || true)
+# --- Get commits since SINCE_DATE via git, pipe safely to python ---
+GIT_RAW=$(git --no-pager log --no-merges --since="$SINCE_DATE" --pretty=format:'%H%x1f%h%x1f%an%x1f%cI%x1f%s%x1e' 2>/dev/null || true)
 
 COMMITS_JSON=$(printf '%s' "$GIT_RAW" | python3 - <<'PY'
 import sys, json
@@ -97,16 +109,16 @@ print(json.dumps(out))
 PY
 )
 
-# Trim to display limits
-PR_COUNT=$(echo "$PR_ITEMS" | jq 'length' || echo 0)
-COMMIT_COUNT=$(echo "$COMMITS_JSON" | jq 'length' || echo 0)
+# compute counts and display slices
+PR_COUNT=$(echo "$PR_ITEMS" | jq 'length' 2>/dev/null || echo 0)
+COMMIT_COUNT=$(echo "$COMMITS_JSON" | jq 'length' 2>/dev/null || echo 0)
 
 PR_DISPLAY=$(echo "$PR_ITEMS" | jq ".[:${PR_LIMIT}]")
 COMMITS_DISPLAY=$(echo "$COMMITS_JSON" | jq ".[:${COMMIT_LIMIT}]")
 
-# Build fallback plain-text body (real newlines) - safe ASCII digits and no weird characters
-PR_BLOCK=$(echo "$PR_DISPLAY" | jq -r '.[] | "- 🔀 #' + (.num|tostring) + " — " + (.title) + " — by " + .user + (if .merged_at then " (" + .merged_at + ")" else "" end) + (if .url then " — " + .url else "" end)' || echo "No merged PRs")
-COM_BLOCK=$(echo "$COMMITS_DISPLAY" | jq -r '.[] | "- ⎇ " + (.short) + " — " + (.msg) + " — " + .author + " (" + .date + ") — " + ("https://github.com/'"$REPO"'/commit/" + .sha))' || echo "No recent commits")
+# Build fallback plain-text blocks (avoid pipes that cause SIGPIPE)
+PR_BLOCK=$(echo "$PR_DISPLAY" | jq -r '.[] | "- 🔀 #' + (.num|tostring) + " — " + (.title) + " — by " + .user + (if .merged_at then " (" + .merged_at + ")" else "" end) + (if .url then " — " + .url else "" end)' 2>/dev/null || echo "No merged PRs")
+COM_BLOCK=$(echo "$COMMITS_DISPLAY" | jq -r '.[] | "- ⎇ " + (.short) + " — " + (.msg) + " — " + .author + " (" + .date + ") — " + ("https://github.com/'"$REPO"'/commit/" + .sha)' 2>/dev/null || echo "No recent commits")
 
 FALLBACK_BODY=$(cat <<EOF
 🚀 Release: ${REPO}
@@ -123,10 +135,10 @@ ${COM_BLOCK}
 EOF
 )
 
-# Preview fallback (sanity)
-printf '%s\n' "$FALLBACK_BODY" | sed -n '1,80p'
+# show preview using here-string to avoid pipe broken pipe
+sed -n '1,80p' <<< "$FALLBACK_BODY" || true
 
-# Build Adaptive Card using Python (structured TextBlocks)
+# Build Adaptive Card safely (python)
 export PR_DISPLAY
 export COMMITS_DISPLAY
 export REPO
@@ -145,8 +157,7 @@ prs = json.loads(os.environ.get("PR_DISPLAY","[]") or "[]")
 commits = json.loads(os.environ.get("COMMITS_DISPLAY","[]") or "[]")
 
 def shorttxt(s, n=180):
-    if not s:
-        return ""
+    if not s: return ""
     s = s.replace("\n"," ").strip()
     return s if len(s) <= n else s[:n-3].rstrip() + "..."
 
@@ -201,7 +212,7 @@ print(json.dumps(payload))
 PY
 )
 
-# Post card (or fallback if card rejected)
+# send the card
 TMP_RESP=$(mktemp)
 TMP_PLOAD=$(mktemp)
 echo "$CARD_JSON" > "$TMP_PLOAD"
