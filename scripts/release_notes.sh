@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # release_notes.sh
-# Structured release notes to Teams via Adaptive Card, with fallback to text message.
+# Structured release notes to Teams via Adaptive Card (no literal \n or markdown inside card),
+# with fallback to text message.
 
 WEBHOOK="${TEAMS_WEBHOOK:-}"
 GHTOKEN="${GITHUB_TOKEN:-}"
@@ -25,7 +26,7 @@ LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
 if [ -n "$LAST_TAG" ]; then
   SINCE_DATE=$(git log -1 --format=%cI "$LAST_TAG")
 else
-  # fallback to 7 days ago in UTC (supports both GNU date and BSD/macOS date)
+  # fallback to 7 days ago in UTC (supports GNU and BSD/macOS)
   if date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ >/dev/null 2>&1; then
     SINCE_DATE=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
   else
@@ -68,6 +69,7 @@ PY
 
 # If PR_ITEMS present -> build structured body; else fallback to recent commits text
 if [ "$(echo "$PR_ITEMS" | jq 'length')" -gt 0 ]; then
+  # Compose a plain-text fallback body (kept for the text fallback)
   MD_LINES=$(echo "$PR_ITEMS" | jq -r '.[] | "- " + (.title) + " (#"+(.num|tostring)+" by "+.user+")"')
   BODY_MD="**Deployed commit:** ${SHA:-N/A}\n\n**Merged PRs since ${SINCE_DATE}:**\n${MD_LINES}"
 else
@@ -79,47 +81,59 @@ echo "Prepared release notes (truncated):"
 printf '%s\n' "$BODY_MD" | sed -n '1,20p'
 
 # ---------------------------
-# Build Adaptive Card with Python (avoids complex jq quoting issues)
+# Build Adaptive Card with Python (structured TextBlocks; no markdown)
 # ---------------------------
-# Export PR_ITEMS to environment so Python can read it safely
+# Export PR_ITEMS so the python subprocess can read it safely
 export PR_ITEMS
 
-CARD_JSON=$(python3 - "$REPO" "$SHA" <<'PY'
+CARD_JSON=$(python3 - "$REPO" "$SHA" "$SINCE_DATE" <<'PY'
 import os, sys, json
 
 repo = sys.argv[1]
 sha = sys.argv[2] or "N/A"
-commit_url = f"https://github.com/{repo}/commit/{sha}" if sha and sha != "N/A" else f"https://github.com/{repo}"
-
-# load PR items from env
+since = sys.argv[3] or ""
 prs_json = os.environ.get("PR_ITEMS", "[]")
 try:
     prs = json.loads(prs_json)
 except Exception:
     prs = []
 
+def short(s, n=180):
+    if not s:
+        return ""
+    s = s.strip()
+    if len(s) <= n:
+        return s
+    return s[: n-3].rstrip() + "..."
+
 body = []
 # Header
-body.append({"type":"TextBlock","size":"Large","weight":"Bolder","text":"🚀 DeployGuard — Release Notes","wrap":True})
-body.append({"type":"TextBlock","text":f"📂 Repository: {repo}","wrap":True,"spacing":"Small"})
-body.append({"type":"TextBlock","text":f"🔖 Commit: {sha}","wrap":True,"isSubtle":True,"spacing":"Small"})
-body.append({"type":"TextBlock","text":"📌 Changes:","weight":"Bolder","wrap":True,"separator":True,"spacing":"Medium"})
+body.append({"type":"TextBlock","size":"Large","weight":"Bolder","text":"DeployGuard — Release Notes","wrap":True})
+body.append({"type":"TextBlock","text":f"Repository: {repo}","wrap":True,"spacing":"Small"})
+body.append({"type":"TextBlock","text":f"Deployed commit: {sha}","wrap":True,"isSubtle":True,"spacing":"Small"})
+if since:
+    body.append({"type":"TextBlock","text":f"Merged PRs since: {since}","wrap":True,"spacing":"Small","isSubtle":True})
 
-# Add each PR as its own TextBlock for clearer rendering in Teams
+# If we have PRs, add each as its own TextBlock for clean rendering.
 if prs:
+    # small separator
+    body.append({"type":"TextBlock","text":"Changes:","weight":"Bolder","wrap":True,"separator":True,"spacing":"Medium"})
     for pr in prs:
-        title = pr.get("title","(no title)")
+        title = short(pr.get("title","(no title)"))
         num = pr.get("num","?")
         user = pr.get("user","unknown")
         url = pr.get("url","")
-        # Use one line text; include URL so users can click it (AdaptiveCards may not always render inline markdown)
-        line = f"• {title} (#{num}) by {user}"
+        # Construct a single-line human-friendly text. Avoid markdown. Include URL so it is clickable in Teams.
         if url:
-            line = f"{line} — {url}"
+            line = f"• {title} (#{num}) by {user} — {url}"
+        else:
+            line = f"• {title} (#{num}) by {user}"
         body.append({"type":"TextBlock","text": line,"wrap":True,"spacing":"Small"})
 else:
-    # no PRs, put a helpful message
-    body.append({"type":"TextBlock","text":"No merged PRs found in the selected window. See recent commits in the fallback.","wrap":True,"spacing":"Small"})
+    # No PRs: include recent commits as separate blocks (trimmed)
+    body.append({"type":"TextBlock","text":"Recent commits:","weight":"Bolder","wrap":True,"separator":True,"spacing":"Medium"})
+    # read fallback commits from environment variable if you want; for now display a hint
+    body.append({"type":"TextBlock","text":"No merged PRs in the selected window. See fallback text message for recent commits.","wrap":True,"spacing":"Small"})
 
 payload = {
     "$schema":"http://adaptivecards.io/schemas/adaptive-card.json",
@@ -127,7 +141,7 @@ payload = {
     "version":"1.3",
     "body": body,
     "actions":[
-        {"type":"Action.OpenUrl","title":"🔗 View repository","url": f"https://github.com/{repo}"}
+        {"type":"Action.OpenUrl","title":"View repository","url": f"https://github.com/{repo}"}
     ]
 }
 
