@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# release_notes.sh (sed-safe)
-# - avoids sed bracket-range issues that produce "Invalid range end"
-# - uses awk/tr/head instead of sed where needed
-# - shows last N PRs and last M commits, short SHAs, Adaptive Card + fallback
+# release_notes.sh (broken-pipe fixed)
+# - collects merged PRs and recent commits
+# - sends an Adaptive Card to Teams (with text fallback)
+# - avoids broken-pipe when previewing output in CI
 
 export LANG=C
 export LC_ALL=C
@@ -133,8 +133,8 @@ ${COM_BLOCK}
 EOF
 )
 
-# show preview without creating a fragile pipe
-printf '%s\n' "$FALLBACK_BODY" | head -n 80 || true
+# show preview safely (avoid broken pipe) — use here-string with awk so writer won't get EPIPE
+awk 'NR<=80{print}' <<< "$FALLBACK_BODY" || true
 
 # Build Adaptive Card with Python (structured TextBlocks)
 export PR_DISPLAY
