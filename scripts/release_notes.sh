@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# release_notes.sh (broken-pipe fixed)
+# release_notes.sh (broken-pipe fixed; safe preview)
 # - collects merged PRs and recent commits
 # - sends an Adaptive Card to Teams (with text fallback)
-# - avoids broken-pipe when previewing output in CI
+# - avoids broken-pipe when previewing output in CI by using here-strings
 
 export LANG=C
 export LC_ALL=C
@@ -25,10 +25,11 @@ fi
 
 # sanitize helper: replace common weird zeros and remove non-printable chars
 sanitize() {
-  printf '%s' "$1" \
-    | tr 'Øø𝟘' '000' \
-    | tr -cd '[:print:]\n' \
-    | tr -s ' '
+  # use printf only to build the string (no pipe to a short-lived reader)
+  local s
+  s="$(printf '%s' "$1")"
+  s="$(printf '%s' "$s" | tr 'Øø𝟘' '000' | tr -cd '[:print:]\n' | tr -s ' ')"
+  printf '%s' "$s"
 }
 
 REPO="$(sanitize "$REPO")"
@@ -44,6 +45,7 @@ else
   if date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ >/dev/null 2>&1; then
     SINCE_DATE=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
   else
+    # macOS/BSD fallback
     SINCE_DATE=$(date -u -v -7d +%Y-%m-%dT%H:%M:%SZ)
   fi
   COMPARE_URL="https://github.com/${REPO}/commits"
@@ -133,8 +135,10 @@ ${COM_BLOCK}
 EOF
 )
 
-# show preview safely (avoid broken pipe) — use here-string with awk so writer won't get EPIPE
-awk 'NR<=80{print}' <<< "$FALLBACK_BODY" || true
+# ---------- SAFE PREVIEW ----------
+# Use a here-string into head (no writer process that can get SIGPIPE)
+# This avoids broken pipe errors under set -euo pipefail.
+head -n 80 <<< "$FALLBACK_BODY" || true
 
 # Build Adaptive Card with Python (structured TextBlocks)
 export PR_DISPLAY
