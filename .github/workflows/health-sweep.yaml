@@ -2,7 +2,7 @@ name: Health Sweep (daily audit + dashboard update)
 
 on:
   schedule:
-    - cron: '15 5 * * *'   # daily at 11:00 AM NPT (5:15 AM UTC)
+   # - cron: '15 5 * * *'   # daily at 11:00 AM NPT (5:15 AM UTC)
 
   workflow_dispatch: {}
 
@@ -139,3 +139,4 @@ jobs:
           git add docs/health.json || true
           git commit -m "Health sweep update ${TIMESTAMP}" || echo "no changes to commit"
           git push || echo "push failed (branch protections?)"
+
