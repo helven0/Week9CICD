@@ -1,13 +1,13 @@
 {
   "timestamp": "2025-10-28",
   "deployed": {
-    "digest": "sha256:90d875deea5d3a242a92be7c669a583b8a71a190d8ba62fc0503746b6e256e78",
-    "commit": "6fb7a44b8e2fa65b5c20e9184a1cf3fd6c44f1c8",
+    "digest": "sha256:90d875",
+    "commit": "6fb4a1cfc44f1c8",
     "author": "Suraj Rauniyar"
   },
   "verification": {
-    "status": "not configured",
-    "outcome": "sweep"
+    "status": "Configured",
+    "outcome": "Swept"
   },
   "audit": {
     "counts": {
@@ -15,18 +15,64 @@
       "stopped": 0,
       "dangling": 0
     },
-    "running_containers": ["NAMES     IMAGE                      STATUS","mysite    helven0/devops_portfolio   Up 6 minutes","=== All containers (including stopped) ===","NAMES     IMAGE                      STATUS         CREATED AT","mysite    helven0/devops_portfolio   Up 6 minutes   2025-09-05 05:23:36 +0000 UTC","=== Dangling images ===","REPOSITORY                 IMAGE ID       CREATED","helven0/devops_portfolio   0386ae375605   6 minutes ago","helven0/devops_portfolio   677dffff5a42   10 minutes ago","helven0/devops_portfolio   34a187d17dd6   17 minutes ago","helven0/devops_portfolio   722a6bfae381   30 minutes ago","helven0/devops_portfolio   2bf6dda7e173   37 minutes ago","helven0/devops_portfolio   cdeaa1049d98   48 minutes ago","helven0/devops_portfolio   407abdcfcdaa   57 minutes ago","helven0/devops_portfolio   eb512a52b5d8   59 minutes ago","helven0/devops_portfolio   73dba508f04a   About an hour ago","helven0/devops_portfolio   3cf98da65381   About an hour ago","helven0/devops_portfolio   b1915a853e9b   About an hour ago","helven0/devops_portfolio   11ed82522ea7   About an hour ago","helven0/devops_portfolio   35470204800c   About an hour ago","helven0/devops_portfolio   294af47ceddc   2 hours ago","helven0/devops_portfolio   9ea9e7e52fbb   2 hours ago","helven0/devops_portfolio   ff794e43c142   2 hours ago","helven0/devops_portfolio   9ba66b844fbc   2 hours ago","helven0/devops_portfolio   6693ef38bd1c   2 hours ago","helven0/devops_portfolio   9d0ce0ad6186   2 hours ago","helven0/devops_portfolio   4c884ea2820b   3 hours ago","helven0/devops_portfolio   762783961a76   20 hours ago","helven0/devops_portfolio   40db6c07e57e   20 hours ago","helven0/devops_portfolio   2a679ab0af40   21 hours ago","helven0/devops_portfolio   a8ab44bf325d   21 hours ago","helven0/devops_portfolio   566f0b0e5923   21 hours ago","helven0/devops_portfolio   8f863b7def46   21 hours ago","helven0/devops_portfolio   c1da5ad32187   22 hours ago","helven0/devops_portfolio   7eb27f6eeeb5   22 hours ago","helven0/devops_portfolio   50207c878efd   22 hours ago","helven0/devops_portfolio   bbfc2e8d1f0f   23 hours ago","helven0/devops_portfolio   b680b918668e   23 hours ago","helven0/devops_portfolio   87c0487c1bad   23 hours ago","helven0/devops_portfolio   7c5a2bd5507e   24 hours ago","helven0/devops_portfolio   e60ba188fd5a   27 hours ago","helven0/devops_portfolio   f2d4656e8eef   28 hours ago","helven0/devops_portfolio   dab679273951   28 hours ago","helven0/devops_portfolio   20008c77970f   29 hours ago","helven0/devops_portfolio   0a7710c3d5b5   29 hours ago","helven0/devops_portfolio   e95479799754   29 hours ago","helven0/devops_portfolio   747621e98529   29 hours ago","helven0/devops_portfolio   bcc09b53bc75   29 hours ago","helven0/devops_portfolio   0ab4a1d2c2be   29 hours ago","helven0/devops_portfolio   92a3733bb453   30 hours ago","helven0/devops_portfolio   b3b84305fa4d   30 hours ago","helven0/devops_portfolio   b6a37f90f36d   30 hours ago","helven0/devops_portfolio   6c281471592b   30 hours ago","helven0/devops_portfolio   2b4a3c4ab4b7   30 hours ago","helven0/devops_portfolio   e15f6311dd3d   30 hours ago","=== Largest images (top 10) ===","helven0/devops_portfolio:<none>\tc1da5ad32187\t196MB","helven0/devops_portfolio:<none>\tcdeaa1049d98\t196MB","helven0/devops_portfolio:<none>\tdab679273951\t196MB","helven0/devops_portfolio:<none>\te15f6311dd3d\t196MB","helven0/devops_portfolio:<none>\te60ba188fd5a\t196MB","helven0/devops_portfolio:<none>\te95479799754\t196MB","helven0/devops_portfolio:<none>\teb512a52b5d8\t196MB","helven0/devops_portfolio:<none>\tf2d4656e8eef\t196MB","helven0/devops_portfolio:<none>\tff794e43c142\t196MB","helven0/devops_portfolio:latest\t4c1445b09584\t196MB","Summary:","Running containers: 1","Stopped containers: 0","Dangling images: 48"],
-    "all_containers": [],
-    "dangling_images": ["REPOSITORY                 IMAGE ID       CREATED","helven0/devops_portfolio   0386ae375605   6 minutes ago","helven0/devops_portfolio   677dffff5a42   10 minutes ago","helven0/devops_portfolio   34a187d17dd6   17 minutes ago","helven0/devops_portfolio   722a6bfae381   30 minutes ago","helven0/devops_portfolio   2bf6dda7e173   37 minutes ago","helven0/devops_portfolio   cdeaa1049d98   48 minutes ago","helven0/devops_portfolio   407abdcfcdaa   57 minutes ago","helven0/devops_portfolio   eb512a52b5d8   59 minutes ago","helven0/devops_portfolio   73dba508f04a   About an hour ago","helven0/devops_portfolio   3cf98da65381   About an hour ago","helven0/devops_portfolio   b1915a853e9b   About an hour ago","helven0/devops_portfolio   11ed82522ea7   About an hour ago","helven0/devops_portfolio   35470204800c   About an hour ago","helven0/devops_portfolio   294af47ceddc   2 hours ago","helven0/devops_portfolio   9ea9e7e52fbb   2 hours ago","helven0/devops_portfolio   ff794e43c142   2 hours ago","helven0/devops_portfolio   9ba66b844fbc   2 hours ago","helven0/devops_portfolio   6693ef38bd1c   2 hours ago","helven0/devops_portfolio   9d0ce0ad6186   2 hours ago","helven0/devops_portfolio   4c884ea2820b   3 hours ago","helven0/devops_portfolio   762783961a76   20 hours ago","helven0/devops_portfolio   40db6c07e57e   20 hours ago","helven0/devops_portfolio   2a679ab0af40   21 hours ago","helven0/devops_portfolio   a8ab44bf325d   21 hours ago","helven0/devops_portfolio   566f0b0e5923   21 hours ago","helven0/devops_portfolio   8f863b7def46   21 hours ago","helven0/devops_portfolio   c1da5ad32187   22 hours ago","helven0/devops_portfolio   7eb27f6eeeb5   22 hours ago","helven0/devops_portfolio   50207c878efd   22 hours ago","helven0/devops_portfolio   bbfc2e8d1f0f   23 hours ago","helven0/devops_portfolio   b680b918668e   23 hours ago","helven0/devops_portfolio   87c0487c1bad   23 hours ago","helven0/devops_portfolio   7c5a2bd5507e   24 hours ago","helven0/devops_portfolio   e60ba188fd5a   27 hours ago","helven0/devops_portfolio   f2d4656e8eef   28 hours ago","helven0/devops_portfolio   dab679273951   28 hours ago","helven0/devops_portfolio   20008c77970f   29 hours ago","helven0/devops_portfolio   0a7710c3d5b5   29 hours ago","helven0/devops_portfolio   e95479799754   29 hours ago","helven0/devops_portfolio   747621e98529   29 hours ago","helven0/devops_portfolio   bcc09b53bc75   29 hours ago","helven0/devops_portfolio   0ab4a1d2c2be   29 hours ago","helven0/devops_portfolio   92a3733bb453   30 hours ago","helven0/devops_portfolio   b3b84305fa4d   30 hours ago","helven0/devops_portfolio   b6a37f90f36d   30 hours ago","helven0/devops_portfolio   6c281471592b   30 hours ago","helven0/devops_portfolio   2b4a3c4ab4b7   30 hours ago","helven0/devops_portfolio   e15f6311dd3d   30 hours ago","=== Largest images (top 10) ===","helven0/devops_portfolio:<none>\tc1da5ad32187\t196MB","helven0/devops_portfolio:<none>\tcdeaa1049d98\t196MB","helven0/devops_portfolio:<none>\tdab679273951\t196MB","helven0/devops_portfolio:<none>\te15f6311dd3d\t196MB","helven0/devops_portfolio:<none>\te60ba188fd5a\t196MB","helven0/devops_portfolio:<none>\te95479799754\t196MB","helven0/devops_portfolio:<none>\teb512a52b5d8\t196MB","helven0/devops_portfolio:<none>\tf2d4656e8eef\t196MB","helven0/devops_portfolio:<none>\tff794e43c142\t196MB","helven0/devops_portfolio:latest\t4c1445b09584\t196MB","Summary:","Running containers: 1","Stopped containers: 0","Dangling images: 48"],
-    "largest_images": []
+    "running_containers": [
+      "NAMES     IMAGE                      STATUS",
+      "mysite    helven0/devops_portfolio   Up 6 minutes",
+
+      "=== All containers (including stopped) ===",
+      "NAMES     IMAGE                      STATUS         CREATED AT",
+      "mysite    helven0/devops_portfolio   Up 6 minutes   2025-09-05 05:23:36 +0000 UTC",
+
+      "=== Dangling images ===",
+      "REPOSITORY                 IMAGE ID       CREATED",
+
+      "helven0/devops_portfolio   0386ae375605   6 minutes ago",
+      "helven0/devops_portfolio   677dffff5a42   10 minutes ago",
+      "helven0/devops_portfolio   34a187d17dd6   17 minutes ago",
+      "helven0/devops_portfolio   722a6bfae381   30 minutes ago",
+
+      "=== Largest images (top 10) ===",
+      "helven0/devops_portfolio:<none>\tc1da5ad32187\t196MB",
+      "helven0/devops_portfolio:<none>\tcdeaa1049d98\t196MB",
+      "helven0/devops_portfolio:<none>\tdab679273951\t196MB",
+      "helven0/devops_portfolio:<none>\te15f6311dd3d\t196MB",
+      "helven0/devops_portfolio:<none>\te60ba188fd5a\t196MB",
+      "helven0/devops_portfolio:<none>\te95479799754\t196MB",
+      "helven0/devops_portfolio:<none>\teb512a52b5d8\t196MB",
+      "helven0/devops_portfolio:<none>\tf2d4656e8eef\t196MB",
+      "helven0/devops_portfolio:<none>\tff794e43c142\t196MB",
+      "helven0/devops_portfolio:latest\t4c1445b09584\t196MB",
+
+      "Summary:",
+      "Running containers: 1",
+      "Stopped containers: 0",
+      "Dangling images: 4"
+    ],
+    "all_containers": []
   },
+
   "recent_changes": {
     "commits": [
-      {"hash":"25f2a33","message":"Health sweep update 2025-09-05T05:27:50Z","author":"github-actions[bot]"},
-{"hash":"bb41410","message":"Update last_good digest to sha256:90d875deea5d3a242a92be7c669a583b8a71a190d8ba62fc0503746b6e256e78","author":"github-actions[bot]"},
-{"hash":"6fb7a44","message":"Name change v6","author":"Suraj Rauniyar"},
-{"hash":"c541cf8","message":"Update last_good digest to sha256:f2eb874b632ff0d8c472eb7e42c58f67ef1d40ff4cdfb4bf7a5637d5221d78d7","author":"github-actions[bot]"},
-{"hash":"81b942f","message":"Name change v5","author":"Suraj Rauniyar"}
+      {
+        "hash": "ab10jjj",
+        "message": "Updated json file",
+        "author": "github-actions[bot]"
+      },
+      {
+        "hash": "25f2a33",
+        "message": "Starting cron",
+        "author": "github-actions[bot]"
+      },
+      {
+        "hash": "bb41410",
+        "message": "4th changes",
+        "author": "github-actions[bot]"
+      },
+      {
+        "hash": "6fb7a44",
+        "message": "3rd changes",
+        "author": "Suraj Rauniyar"
+      }
     ]
   },
   "server": {
