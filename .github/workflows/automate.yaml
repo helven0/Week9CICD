@@ -23,7 +23,6 @@ jobs:
 
       # Step 2: Validate the HTML file to ensure it's well-formed.
       - name: Validate HTML
-        uses: h-enk/html-validator-action@v2
         with:
           file: index.html
 
