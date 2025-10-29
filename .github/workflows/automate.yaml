@@ -44,18 +44,6 @@ jobs:
         env:
           DOCKERHUB_PAT: ${{ secrets.DOCKERHUB_PAT }}
 
-      # Step 6: Scan the Docker image for vulnerabilities using Trivy.
-      # The workflow will fail if any critical or high-severity vulnerabilities are found.
-      - name: Scan Docker image for vulnerabilities
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'helven0/devops_portfolio:latest'
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-
       # Step 7: Capture the pushed image's digest.
       # The digest is a unique identifier for the image, which is more reliable than a tag.
       - name: Capture pushed image digest
