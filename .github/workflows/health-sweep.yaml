@@ -1,32 +1,41 @@
+# This workflow performs a daily health sweep of the deployed application.
+# It runs a Docker audit, gathers server information, and updates the health dashboard.
 name: Health Sweep (daily audit + dashboard update)
 
 on:
+  # This workflow is scheduled to run daily at 5:15 AM UTC (11:00 AM NPT).
   schedule:
-    - cron: '15 5 * * *'   # daily at 11:00 AM NPT (5:15 AM UTC)
+    - cron: '15 5 * * *'
 
+  # This workflow can also be triggered manually.
   workflow_dispatch: {}
 
 jobs:
   sweep:
+    # This job runs on an Ubuntu virtual machine.
     runs-on: ubuntu-latest
 
     steps:
+      # Step 1: Check out the repository's code.
       - name: Checkout repo
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
+      # Step 2: Prepare the SSH key for accessing the EC2 instance.
       - name: Prepare SSH key
         run: |
           echo "${{ secrets.SSH_KEY64 }}" | base64 -d > pem.pem
           chmod 400 pem.pem
 
+      # Step 3: Run a Docker audit on the EC2 instance and save the output.
       - name: Run docker audit on EC2 (save output)
         run: |
           ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} '/opt/scripts/docker_audit.sh' \
             > docker_audit_output.txt
           echo "Saved docker audit output"
 
+      # Step 4: Gather information about the EC2 instance, such as hostname, OS, and Docker version.
       - name: Gather server info
         run: |
           ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} '
@@ -44,6 +53,8 @@ jobs:
           ' > server_info.txt
           cat server_info.txt
 
+      # Step 5: Build the `docs/health.json` file.
+      # This file contains the health status of the application and is used by the dashboard.
       - name: Build docs/health.json (rich structured)
         run: |
           set -e
@@ -133,10 +144,9 @@ jobs:
           echo "Built docs/health.json:"
           cat docs/health.json
 
-          # Commit and push
+          # Commit and push the updated health.json file to the repository.
           git config user.email "actions@github.com"
           git config user.name "github-actions[bot]"
           git add docs/health.json || true
           git commit -m "Health sweep update ${TIMESTAMP}" || echo "no changes to commit"
           git push || echo "push failed (branch protections?)"
-

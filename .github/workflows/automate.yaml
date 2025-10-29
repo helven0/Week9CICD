@@ -1,5 +1,8 @@
+# This workflow defines the continuous integration and deployment (CI/CD) pipeline.
+# It automates the process of building, testing, and deploying the application.
 name: Deploy + Audit + ReleaseNotes + Dashboard
 
+# This workflow is triggered on pushes to the 'main' branch and can also be run manually.
 on:
   push:
     branches:
@@ -8,16 +11,28 @@ on:
 
 jobs:
   deploy-and-audit:
+    # This job runs on an Ubuntu virtual machine.
     runs-on: ubuntu-latest
     steps:
+      # Step 1: Check out the repository's code.
+      # `fetch-depth: 0` is used to get the full commit history, which is needed for release notes.
       - name: Checkout (full history)
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
+      # Step 2: Validate the HTML file to ensure it's well-formed.
+      - name: Validate HTML
+        uses: h-enk/html-validator-action@v2
+        with:
+          file: index.html
+
+      # Step 3: Set up Docker Buildx, a tool for building Docker images.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
+      # Step 4: Log in to Docker Hub to push the image.
+      # The `DOCKERHUB_PAT` secret is used for authentication.
       - name: Login to Docker Hub
         uses: docker/login-action@v2
         with:
@@ -25,6 +40,8 @@ jobs:
           username: helven0
           password: ${{ secrets.DOCKERHUB_PAT }}
 
+      # Step 5: Build the Docker image and push it to Docker Hub.
+      # The image is tagged with "latest".
       - name: Build and push image
         run: |
           IMAGE="helven0/devops_portfolio:latest"
@@ -33,6 +50,20 @@ jobs:
         env:
           DOCKERHUB_PAT: ${{ secrets.DOCKERHUB_PAT }}
 
+      # Step 6: Scan the Docker image for vulnerabilities using Trivy.
+      # The workflow will fail if any critical or high-severity vulnerabilities are found.
+      - name: Scan Docker image for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'helven0/devops_portfolio:latest'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      # Step 7: Capture the pushed image's digest.
+      # The digest is a unique identifier for the image, which is more reliable than a tag.
       - name: Capture pushed image digest
         id: capture
         shell: bash
@@ -47,17 +78,23 @@ jobs:
           printf '{"image":"%s","repo_digest":"%s","digest":"%s","git_sha":"%s"}\n' \
             "$IMAGE" "$REPO_DIGEST" "$DIGEST" "${GITHUB_SHA}" > artifact-metadata.json
 
+      # Step 8: Upload the artifact metadata as a build artifact.
       - name: Upload artifact metadata
         uses: actions/upload-artifact@v4
         with:
           name: artifact-metadata
           path: artifact-metadata.json
 
+      # Step 9: Prepare the SSH key for deploying to the EC2 instance.
+      # The SSH key is decoded from a base64-encoded secret.
       - name: Prepare SSH key
         run: |
           echo "${{ secrets.SSH_KEY64 }}" | base64 -d > pem.pem
           chmod 400 pem.pem
 
+      # Step 10: Deploy the Docker image to the EC2 instance and run a health check.
+      # This step pulls the new image, stops and removes the old container, and starts a new one.
+      # A simple curl command is used to check if the website is up and running.
       - name: Deploy to EC2 and run health check
         id: deploy_step
         env:
@@ -72,24 +109,31 @@ jobs:
           ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} \
             "set -euo pipefail; docker pull '${REMOTE_IMAGE}'; if [ \"\$(docker ps -q -f name=mysite)\" ]; then docker stop mysite || true; docker rm mysite || true; fi; docker run --name mysite -p 80:80 -d '${REMOTE_IMAGE}'; sleep 3; if curl -sf http://127.0.0.1/ >/dev/null; then echo 'HEALTH_OK'; else echo 'HEALTH_FAIL' >&2; exit 2; fi"
 
+      # Step 11: Run a Docker audit on the EC2 instance.
+      # The audit script is expected to be at /opt/scripts/docker_audit.sh on the EC2 instance.
       - name: Run docker audit on EC2 (save output)
         id: audit
         run: |
           ssh -i pem.pem -o StrictHostKeyChecking=no ubuntu@${{ secrets.SERVER_IP }} '/opt/scripts/docker_audit.sh' > docker_audit_output.txt || true
           echo "Saved docker audit to docker_audit_output.txt"
 
+      # Step 12: Upload the Docker audit output as a build artifact.
       - name: Upload docker audit artifact
         uses: actions/upload-artifact@v4
         with:
           name: docker-audit
           path: docker_audit_output.txt
 
+      # Step 13: Check out the code again with credentials to allow pushing changes.
       - name: Checkout (persist credentials) to allow commits
         uses: actions/checkout@v3
         with:
           persist-credentials: true
           fetch-depth: 0
 
+      # Step 14: Handle the deployment outcome.
+      # If the deployment was successful, it updates the `deploy/last_good.json` file.
+      # If it failed, it attempts to roll back to the last known good deployment.
       - name: Handle deploy outcome (update last_good.json or attempt rollback)
         env:
           DEPLOY_OUTCOME: ${{ steps.deploy_step.outcome }}
@@ -123,7 +167,9 @@ jobs:
           else
             echo "Deploy outcome is ${DEPLOY_OUTCOME}; no update or rollback performed."
           fi
-          
+
+      # Step 15: Send release notes to Microsoft Teams.
+      # This step uses a custom script to generate and send the release notes.
       - name: Send release notes (PR-level) to Teams or logs
         env:
           TEAMS_WEBHOOK: ${{ secrets.TEAMS_WEBHOOK }}

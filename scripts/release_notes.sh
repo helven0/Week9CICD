@@ -164,69 +164,129 @@ sed -n '1,80p' "$TMP_PREVIEW" || true
 
 # Build Adaptive Card JSON using python reading display files
 python3 - "$REPO" "$SHORT_SHA" "$TMP_PR_DISPLAY" "$TMP_COMMITS_DISPLAY" > "$TMP_CARD" <<'PY'
-import sys, json, os
-repo = sys.argv[1]
-short_sha = sys.argv[2] or "(hidden)"
-pr_file = sys.argv[3]
-commits_file = sys.argv[4]
-try:
-    prs = json.load(open(pr_file,'r',encoding='utf-8'))
-except Exception:
-    prs = []
-try:
-    commits = json.load(open(commits_file,'r',encoding='utf-8'))
-except Exception:
-    commits = []
+import sys
+import json
+import os
 
-def shorttxt(s, n=180):
-    if not s:
-        return ""
-    s = s.replace("\n"," ").strip()
-    return s if len(s) <= n else s[:n-3].rstrip() + "..."
 
-body = []
-body.append({"type":"TextBlock","size":"Large","weight":"Bolder","text":"🚀 Release Notes","wrap":True})
-body.append({"type":"TextBlock","text":f"📦 Repository: {repo}","wrap":True,"spacing":"Small"})
-body.append({"type":"TextBlock","text":f"🔒 Deployed: {short_sha} (full SHA hidden)","wrap":True,"isSubtle":True,"spacing":"Small"})
-body.append({"type":"TextBlock","text":f"📆 Since: {os.environ.get('SINCE_DATE','')}", "wrap":True,"spacing":"Small","isSubtle":True})
-body.append({"type":"TextBlock","text":f"🧾 PRs: {len(prs)}  •  ⎇ Commits: {len(commits)}","wrap":True,"spacing":"Small","isSubtle":True,"separator":True})
+def generate_adaptive_card(repo, short_sha, prs, commits):
+    """Generates an Adaptive Card for a release."""
 
-if prs:
-    body.append({"type":"TextBlock","text":"🔀 Merged pull requests:","weight":"Bolder","wrap":True,"spacing":"Medium"})
-    for pr in prs:
-        title = shorttxt(pr.get("title","(no title)"),220)
-        num = pr.get("num","?")
-        user = pr.get("user","unknown")
-        url = pr.get("url","")
-        line = f"• #{num}  {title}  — by {user}"
-        if url:
-            line += f" — {url}"
-        body.append({"type":"TextBlock","text":line,"wrap":True,"spacing":"Small"})
-if commits:
-    body.append({"type":"TextBlock","text":"⎇ Recent commits:","weight":"Bolder","wrap":True,"spacing":"Medium"})
-    for c in commits:
-        shortc = c.get("short","")[:7]
-        msg = shorttxt(c.get("msg",""),200)
-        author = c.get("author","")
-        date = c.get("date","")
-        sha_full = c.get("sha","")
-        commit_url = f"https://github.com/{repo}/commit/{sha_full}"
-        line = f"• {shortc}  {msg} — {author} ({date}) — {commit_url}"
-        body.append({"type":"TextBlock","text":line,"wrap":True,"spacing":"Small"})
-if not prs and not commits:
-    body.append({"type":"TextBlock","text":"No merged pull requests or recent commits found in this window.","wrap":True,"spacing":"Small"})
+    def short_txt(s, n=180):
+        if not s:
+            return ""
+        s = s.replace("\n", " ").strip()
+        return s if len(s) <= n else s[:n - 3].rstrip() + "..."
 
-payload = {
-    "$schema":"http://adaptivecards.io/schemas/adaptive-card.json",
-    "type":"AdaptiveCard",
-    "version":"1.3",
-    "body": body,
-    "actions": [
-        {"type":"Action.OpenUrl","title":"🔗 View repository","url": f"https://github.com/{repo}"},
-        {"type":"Action.OpenUrl","title":"🔎 View changes on GitHub","url": os.environ.get('COMPARE_URL','')}
-    ]
-}
-print(json.dumps(payload))
+    pr_section = []
+    if prs:
+        pr_section.append({
+            "type": "TextBlock",
+            "text": "🔀 Merged Pull Requests",
+            "weight": "Bolder",
+            "wrap": True,
+            "spacing": "Medium"
+        })
+        for pr in prs:
+            pr_section.append({
+                "type": "TextBlock",
+                "text": f"• **#{pr.get('num', '?')}**: [{short_txt(pr.get('title', '(no title)'), 220)}]({pr.get('url', '')}) by {pr.get('user', 'unknown')}",
+                "wrap": True,
+                "spacing": "Small"
+            })
+
+    commit_section = []
+    if commits:
+        commit_section.append({
+            "type": "TextBlock",
+            "text": "⎇ Recent Commits",
+            "weight": "Bolder",
+            "wrap": True,
+            "spacing": "Medium"
+        })
+        for c in commits:
+            commit_url = f"https://github.com/{repo}/commit/{c.get('sha', '')}"
+            commit_section.append({
+                "type": "TextBlock",
+                "text": f"• **[{c.get('short', '')[:7]}]({commit_url})**: {short_txt(c.get('msg', ''), 200)} by {c.get('author', '')}",
+                "wrap": True,
+                "spacing": "Small"
+            })
+
+    no_changes_section = []
+    if not prs and not commits:
+        no_changes_section.append({
+            "type": "TextBlock",
+            "text": "No merged pull requests or recent commits found in this window.",
+            "wrap": True,
+            "spacing": "Small"
+        })
+
+    payload = {
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "type": "AdaptiveCard",
+        "version": "1.3",
+        "body": [
+            {
+                "type": "TextBlock",
+                "size": "Large",
+                "weight": "Bolder",
+                "text": "🚀 Release Notes",
+                "wrap": True
+            },
+            {
+                "type": "ColumnSet",
+                "columns": [
+                    {
+                        "type": "Column",
+                        "width": "stretch",
+                        "items": [
+                            {
+                                "type": "FactSet",
+                                "facts": [
+                                    {"title": "📦 Repository", "value": f"[{repo}](https://github.com/{repo})"},
+                                    {"title": "🔒 Deployed", "value": short_sha},
+                                    {"title": "📆 Since", "value": os.environ.get('SINCE_DATE', '')},
+                                    {"title": "🧾 PRs", "value": str(len(prs))},
+                                    {"title": "⎇ Commits", "value": str(len(commits))}
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+            *pr_section,
+            *commit_section,
+            *no_changes_section
+        ],
+        "actions": [
+            {"type": "Action.OpenUrl", "title": "🔗 View Repository", "url": f"https://github.com/{repo}"},
+            {"type": "Action.OpenUrl", "title": "🔎 View Changes on GitHub", "url": os.environ.get('COMPARE_URL', '')}
+        ]
+    }
+    return json.dumps(payload)
+
+
+if __name__ == "__main__":
+    repo = sys.argv[1]
+    short_sha = sys.argv[2] or "(hidden)"
+    pr_file = sys.argv[3]
+    commits_file = sys.argv[4]
+
+    try:
+        with open(pr_file, 'r', encoding='utf-8') as f:
+            prs = json.load(f)
+    except Exception:
+        prs = []
+
+    try:
+        with open(commits_file, 'r', encoding='utf-8') as f:
+            commits = json.load(f)
+    except Exception:
+        commits = []
+
+    adaptive_card = generate_adaptive_card(repo, short_sha, prs, commits)
+    print(adaptive_card)
 PY
 
 # Post Adaptive Card
